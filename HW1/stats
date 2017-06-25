@@ -8,6 +8,10 @@ function echo_badfile() {
     echo "./stats: cannot read $1" 1>&2
 }
 
+function echo_nodata() {
+    echo "No data in input" 1>&2
+}
+
 # Checking to see if inputs are valid
 # Echoes usage and exits if invalid
 
@@ -35,12 +39,18 @@ then
     exit 1
 fi
 
-tempfile="tempfile$$"
-# echo $tempfile
-
 # -row option
 if [[ $1 == -r* ]];
 then
+    tempfile="tempfile$$"
+    read firstRow < "${2:-/dev/stdin}"
+    # Exits if there are no inputs
+    if [[ $firstRow == "" ]]
+    then
+        echo_nodata
+        exit 0
+    fi
+
     echo Average Median
     while read curRow
     do
@@ -60,15 +70,59 @@ then
         sort -g $tempfile -o $tempfile
 
         # Prints the average
-        # echo "$(( ($sum + ($count / 2)) / $count ))"
         printf "%b\t" "$(( ($sum + ($count / 2)) / $count ))"
 
         # Prints the median
-        tail -$(( ($count / 2) + 1 )) $tempfile | head -1
+        head -$(( ($count + 2) / 2 )) $tempfile | tail -1
 
         # Checks if data should be read from file or stdin
         # https://stackoverflow.com/questions/6980090/how-to-read-from-file-or-stdin-in-bash
     done < "${2:-/dev/stdin}"
+    rm -f $tempfile
 fi
 
-rm -f $tempfile
+# -col version
+if [[ $1 == -c* ]];
+then
+    read firstrow < "${2:-/dev/stdin}"
+    if [[ $firstrow == "" ]]
+    then
+        echo_nodata
+        exit 0
+    fi
+
+    average=""
+    median=""
+    curcol=1
+    tempfile="tempfile$$"
+    for cols in $firstrow
+    do
+        firstcol=`cut -f$curcol ${2:-/dev/stdin}`
+        sum=0
+        count=0
+        > $tempfile
+
+        for num in $firstcol
+        do
+            sum=`expr $sum + $num`
+            count=`expr $count + 1`
+            echo $num >> $tempfile
+        done
+        sort -g $tempfile -o $tempfile
+
+        if [ $curcol -eq 1 ];
+        then
+            average="$(( ($sum + ($count / 2)) / $count ))"
+            median="`head -$(( ($count + 2) / 2 )) $tempfile | tail -1`"
+        else
+            average="$average"$'\t'"$(( ($sum + ($count / 2)) / $count ))"
+            median="$median"$'\t'"`head -$(( ($count + 2) / 2 )) $tempfile | tail -1`"
+        fi
+        curcol=`expr $curcol + 1`
+    done
+    echo Averages:
+    echo $average
+    echo Medians:
+    echo $median
+    rm -f $tempfile
+fi
