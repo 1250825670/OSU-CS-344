@@ -71,6 +71,14 @@ trap "delete_in_data; rm -f $tempfile; echo 'CTRL+C received, exiting'; exit 1" 
 # -row option
 if [[ $1 == -r* ]];
 then
+    # Check to see if there is any data in input
+    read firstrow < $indata
+    if [[ $firstrow == "" ]]
+    then
+        echo_nodata
+        exit 0
+    fi
+
     echo Average Median
     while read curRow
     do
@@ -81,6 +89,7 @@ then
         # Clear the contents of temporary file before next row
         > $tempfile
 
+        # Calculate sum of all numbers in current row
         for num in $curRow
         do
             sum=`expr $sum + $num`
@@ -103,6 +112,7 @@ fi
 # -col version
 if [[ $1 == -c* ]];
 then
+    # Check to see if there is any data in input
     read firstrow < $indata
     if [[ $firstrow == "" ]]
     then
@@ -113,13 +123,19 @@ then
     average=""
     median=""
     cur_col_ind=1
+
+    # Runs for every column in data
     for cols in $firstrow
     do
+        # Obtains the data in the current column
         cur_col=`cut -f$cur_col_ind $indata`
+
+        # Initializes accumulators
         sum=0
         count=0
         > $tempfile
 
+        # Calculate total of all numbers in current column
         for num in $cur_col
         do
             sum=`expr $sum + $num`
@@ -128,8 +144,10 @@ then
         done
         sort -g $tempfile -o $tempfile
 
+        # Output average
         if [ $cur_col_ind -eq 1 ];
         then
+            # Don't include a tab if this is the first element
             average="$(( ($sum + ($count / 2)) / $count ))"
             median="`head -$(( ($count + 2) / 2 )) $tempfile | tail -1`"
         else
