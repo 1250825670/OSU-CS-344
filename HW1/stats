@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# Flag to determine if temporary file for input data should be
+# deleted. Default to 1 so delete will not execute if the script
+# encounters a SIGINT early.
+delete_in_data_flag=1
+
+function delete_in_data() {
+    if [ $delete_in_data_flag -eq 0 ];
+    then
+        rm -f $indata
+    fi
+}
+
 function echo_usage() {
     echo "Usage: stats {-rows|-cols} [input]" 1>&2
 }
@@ -47,18 +59,18 @@ then
     cat > "$indata"
 
     # Need to remember to delete temporary file
-    delete_in_data=0
+    delete_in_data_flag=0
 elif [ "$#" = "2" ]
 then
     indata=$2
-    delete_in_data=1
 fi
+
+tempfile="tempfile$$"
+trap "delete_in_data; rm -f $tempfile; echo 'CTRL+C received, exiting'; exit 1" INT HUP TERM
 
 # -row option
 if [[ $1 == -r* ]];
 then
-    tempfile="tempfile$$"
-
     echo Average Median
     while read curRow
     do
@@ -86,7 +98,6 @@ then
         # Checks if data should be read from file or stdin
         # https://stackoverflow.com/questions/6980090/how-to-read-from-file-or-stdin-in-bash
     done < $indata
-    rm -f $tempfile
 fi
 
 # -col version
@@ -102,7 +113,6 @@ then
     average=""
     median=""
     cur_col_ind=1
-    tempfile="tempfile$$"
     for cols in $firstrow
     do
         cur_col=`cut -f$cur_col_ind $indata`
@@ -132,10 +142,7 @@ then
     printf "%s\n" "$average"
     printf "Medians:\n"
     printf "%s\n" "$median"
-    rm -f $tempfile
 fi
 
-if [ $delete_in_data -eq 0 ];
-then
-    rm -f $indata
-fi
+rm -f $tempfile
+delete_in_data
