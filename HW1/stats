@@ -20,6 +20,10 @@ function echo_badfile() {
     echo "./stats: cannot read $1" 1>&2
 }
 
+function echo_cantread() {
+    echo "./stats: cannot read $1" 1>&2
+}
+
 function echo_nodata() {
     echo "No data in input" 1>&2
 }
@@ -63,10 +67,20 @@ then
 elif [ "$#" = "2" ]
 then
     indata=$2
+
+    # If input file, check to see if file is readable
+    cat $2 1>/dev/null 2>/dev/null
+    if [ $? -ne 0 ];
+    then
+        echo_cantread $2
+        exit 1
+    fi
+
 fi
 
 tempfile="tempfile$$"
 trap "delete_in_data; rm -f $tempfile; echo 'CTRL+C received, exiting'; exit 1" INT HUP TERM
+
 
 # -row option
 if [[ $1 == -r* ]];
