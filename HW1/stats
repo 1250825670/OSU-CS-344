@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# stats
+# Programmer: Charles Chen
+# OSU CS-344 HW1
+
 # Flag to determine if temporary file for input data should be
 # deleted. Default to 1 so delete will not execute if the script
 # encounters a SIGINT early.
