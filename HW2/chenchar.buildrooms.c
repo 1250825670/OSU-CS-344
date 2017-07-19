@@ -17,7 +17,7 @@ struct room {
 struct room* createNewRoom(int newID, char* newName, char* newRoomType) {
     struct room* newRoom = malloc(sizeof(struct room));
     newRoom->id = newID;
-    newRoom->name = newName; // TODO: Check if this works
+    newRoom->name = newName;
     newRoom->connections = 0;
     newRoom->roomType = newRoomType;
 
@@ -85,6 +85,53 @@ void freeRoomNames(char** rooms) {
     free(rooms);
 }
 
+int roomsConnectionsFull(struct room** rooms) {
+    /*
+    Returns 1 if all rooms in given array have between 3 and 6 connections,
+    inclusive. Returns 0 otherwise
+    */
+    for (int i = 0; i < 7; i++) {
+        if (rooms[i]->connections < 3 || rooms[i]->connections > 6) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void addRoomConnection(struct room* room1, struct room* room2) {
+    // Check to see if maximum number of room connections has been added
+    if (room1->connections == 6 || room2->connections == 6) {
+        return;
+    }
+
+    // Check to see if these rooms are already connected
+    for (int i = 0; i < room1->connections; i++) {
+        if (room1->connected[i] == room2->id) {
+            return;
+        }
+    }
+    for (int i = 0; i < room2->connections; i++) {
+        if (room2->connected[i] == room1->id) {
+            return;
+        }
+    }
+    if (room1 == room2) {
+        return;
+    }
+
+    // If these rooms can be connected, then connect them
+    room1->connected[room1->connections] = room2->id;
+    room2->connected[room2->connections] = room1->id;
+    room1->connections++;
+    room2->connections++;
+}
+
+void connectRooms(struct room** rooms) {
+    while (roomsConnectionsFull(rooms) == 0) {
+        addRoomConnection(rooms[rand() % 7], rooms[rand() % 7]);
+    }
+}
+
 int main() {
     int curPID = getpid();
 
@@ -114,6 +161,17 @@ int main() {
         else {
             rooms[i] = createNewRoom(i, roomNames[i], "MID_ROOM");
         }
+    }
+
+    connectRooms(rooms);
+    for (int i = 0; i < 7; i++) {
+        printf("ROOM NAME: %s\n", rooms[i]->name);
+        for (int j = 1; j <= rooms[i]->connections; j++) {
+            printf("CONNECTION %d: %s\n", j,
+                rooms[rooms[i]->connected[j - 1]]->name);
+        }
+        printf("ROOM TYPE: %s\n", rooms[i]->roomType);
+        printf("\n");
     }
 
     freeRoomNames(roomNames);
