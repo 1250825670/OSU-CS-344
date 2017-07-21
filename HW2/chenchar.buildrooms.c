@@ -150,9 +150,6 @@ int main() {
 
     // Returns randomized list of room names
     char** roomNames = createRoomNames();
-    for (int i = 0; i < 10; i++) {
-        printf("%s\n", roomNames[i]);
-    }
 
     // Creates room structs, initializes them, and gives them room types
     struct room* rooms[7];
@@ -170,15 +167,6 @@ int main() {
 
     // Randomly generate connections betweeen rooms
     connectRooms(rooms);
-    for (int i = 0; i < 7; i++) {
-        printf("ROOM NAME: %s\n", rooms[i]->name);
-        for (int j = 1; j <= rooms[i]->connections; j++) {
-            printf("CONNECTION %d: %s\n", j,
-                rooms[rooms[i]->connected[j - 1]]->name);
-        }
-        printf("ROOM TYPE: %s\n", rooms[i]->roomType);
-        printf("\n");
-    }
 
     // Output room details to files
     char roomFilename[30];
@@ -189,7 +177,6 @@ int main() {
         snprintf(roomFileNum, 10, "%d", i);
         strcat(roomFilename, "/room");
         strcat(roomFilename, roomFileNum);
-        printf("%s\n", roomFilename);
 
         int fileDesc = open(roomFilename, O_WRONLY | O_CREAT, 0644);
 
@@ -207,8 +194,12 @@ int main() {
         nwritten = write(fileDesc, textToWrite,
             strlen(textToWrite) * sizeof(char));
         for (int j = 1; j <= rooms[i]->connections; j++) {
+            // Convert connection number to string for output
+            char connectionNum[3];
+            snprintf(connectionNum, 3, "%d", j);
+
             strcpy(textToWrite, "CONNECTION ");
-            strcat(textToWrite, roomFileNum);
+            strcat(textToWrite, connectionNum);
             strcat(textToWrite, ": ");
             strcat(textToWrite, rooms[rooms[i]->connected[j - 1]]->name);
             strcat(textToWrite, "\n");
