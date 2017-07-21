@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -139,17 +140,21 @@ int main() {
     char curPIDChar[10];
     snprintf(curPIDChar, 10, "%d", curPID);
 
-    // TODO: Need to check if successful completion of mkdir?
-    /*
     strcat(dirName, curPIDChar);
     int newDir = mkdir(dirName, 0755);
-    */
+    if (newDir < 0) {
+        fprintf(stderr, "Could not create directory\n");
+        perror("Error opening file");
+        exit(1);
+    }
 
+    // Returns randomized list of room names
     char** roomNames = createRoomNames();
     for (int i = 0; i < 10; i++) {
         printf("%s\n", roomNames[i]);
     }
 
+    // Creates room structs, initializes them, and gives them room types
     struct room* rooms[7];
     for (int i = 0; i < 7; i++) {
         if (i == 0) {
@@ -163,6 +168,7 @@ int main() {
         }
     }
 
+    // Randomly generate connections betweeen rooms
     connectRooms(rooms);
     for (int i = 0; i < 7; i++) {
         printf("ROOM NAME: %s\n", rooms[i]->name);
@@ -172,6 +178,48 @@ int main() {
         }
         printf("ROOM TYPE: %s\n", rooms[i]->roomType);
         printf("\n");
+    }
+
+    // Output room details to files
+    char roomFilename[30];
+    char roomFileNum[10];
+    ssize_t nwritten;
+    for (int i = 0; i < 7; i++) {
+        strcpy(roomFilename, dirName);
+        snprintf(roomFileNum, 10, "%d", i);
+        strcat(roomFilename, "/room");
+        strcat(roomFilename, roomFileNum);
+        printf("%s\n", roomFilename);
+
+        int fileDesc = open(roomFilename, O_WRONLY | O_CREAT, 0644);
+
+        if (fileDesc < 0) {
+            fprintf(stderr, "Could not open %s\n", roomFilename);
+            perror("Error opening file");
+            exit(1);
+        }
+
+        // Build up strings to write and write them to file
+        char textToWrite[100];
+        strcpy(textToWrite, "ROOM NAME: ");
+        strcat(textToWrite, rooms[i]->name);
+        strcat(textToWrite, "\n");
+        nwritten = write(fileDesc, textToWrite,
+            strlen(textToWrite) * sizeof(char));
+        for (int j = 1; j <= rooms[i]->connections; j++) {
+            strcpy(textToWrite, "CONNECTION ");
+            strcat(textToWrite, roomFileNum);
+            strcat(textToWrite, ": ");
+            strcat(textToWrite, rooms[rooms[i]->connected[j - 1]]->name);
+            strcat(textToWrite, "\n");
+            nwritten = write(fileDesc, textToWrite,
+                strlen(textToWrite) * sizeof(char));
+        }
+        strcpy(textToWrite, "ROOM TYPE: ");
+        strcat(textToWrite, rooms[i]->roomType);
+        strcat(textToWrite, "\n");
+        nwritten = write(fileDesc, textToWrite,
+            strlen(textToWrite) * sizeof(char));
     }
 
     freeRoomNames(roomNames);
