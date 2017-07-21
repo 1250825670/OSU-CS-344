@@ -144,7 +144,7 @@ int main() {
     int newDir = mkdir(dirName, 0755);
     if (newDir < 0) {
         fprintf(stderr, "Could not create directory\n");
-        perror("Error opening file");
+        perror("Error creating directory");
         exit(1);
     }
 
@@ -173,6 +173,7 @@ int main() {
     char roomFileNum[10];
     ssize_t nwritten;
     for (int i = 0; i < 7; i++) {
+        memset(roomFilename, '\0', sizeof(roomFilename));
         strcpy(roomFilename, dirName);
         snprintf(roomFileNum, 10, "%d", i);
         strcat(roomFilename, "/room");
@@ -188,6 +189,7 @@ int main() {
 
         // Build up strings to write and write them to file
         char textToWrite[100];
+        memset(textToWrite, '\0', sizeof(textToWrite));
         strcpy(textToWrite, "ROOM NAME: ");
         strcat(textToWrite, rooms[i]->name);
         strcat(textToWrite, "\n");
@@ -198,6 +200,7 @@ int main() {
             char connectionNum[3];
             snprintf(connectionNum, 3, "%d", j);
 
+            memset(textToWrite, '\0', sizeof(textToWrite));
             strcpy(textToWrite, "CONNECTION ");
             strcat(textToWrite, connectionNum);
             strcat(textToWrite, ": ");
@@ -206,6 +209,7 @@ int main() {
             nwritten = write(fileDesc, textToWrite,
                 strlen(textToWrite) * sizeof(char));
         }
+        memset(textToWrite, '\0', sizeof(textToWrite));
         strcpy(textToWrite, "ROOM TYPE: ");
         strcat(textToWrite, rooms[i]->roomType);
         strcat(textToWrite, "\n");
