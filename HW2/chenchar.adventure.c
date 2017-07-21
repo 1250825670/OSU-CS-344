@@ -18,8 +18,8 @@ int main() {
     }
 
     struct dirent *curFile;
-    char newestDir[256];
-    memset(newestDir, '\0', sizeof(newestDir));
+    char newestDirName[256];
+    memset(newestDirName, '\0', sizeof(newestDirName));
     struct stat fileStats;
     long int modifiedTime = -1;
     int dirExists = 0;
@@ -29,9 +29,10 @@ int main() {
             dirExists = 1;
             stat(curFile->d_name, &fileStats);
             if ((long int)(fileStats.st_mtime) > modifiedTime) {
+                // Finds most recently modified rooms directory
                 modifiedTime = (long int)fileStats.st_mtime;
-                memset(newestDir, '\0', sizeof(newestDir));
-                strcpy(newestDir, curFile->d_name);
+                memset(newestDirName, '\0', sizeof(newestDirName));
+                strcpy(newestDirName, curFile->d_name);
             }
         }
     }
@@ -43,11 +44,18 @@ int main() {
         exit(1);
     }
 
-    // Find most recently created files
+    printf("%s\n", newestDirName);
 
-    printf("%s\n", newestDir);
+    DIR* newestDir = opendir(newestDirName);
 
-    // Read in all files
+    // Read in all files in directory
+    while ((curFile = readdir(newestDir)) != NULL) {
+        printf("%s\n", curFile->d_name);
+        if (curFile->d_type == DT_REG) {
+            printf("This is a file\n");
+        }
+    }
+    closedir(newestDir);
 
     return 0;
 }
