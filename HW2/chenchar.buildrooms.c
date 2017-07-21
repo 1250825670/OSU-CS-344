@@ -211,6 +211,8 @@ int main() {
         strcat(textToWrite, "\n");
         nwritten = write(fileDesc, textToWrite,
             strlen(textToWrite) * sizeof(char));
+
+        close(fileDesc);
     }
 
     freeRoomNames(roomNames);
