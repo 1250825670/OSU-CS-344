@@ -44,6 +44,72 @@ void setRoomType(struct room* room1, char* newRoomType) {
     strcpy(room1->roomType, newRoomType);
 }
 
+int findRoomInd(struct room** rooms, char* roomName) {
+    // Given a room name, find the index it occupies in rooms array
+    int i;
+    for (i = 0; i < 7; i++) {
+        if (strcmp(rooms[i]->name, roomName) == 0) {
+            return i;
+        }
+    }
+
+    // Returns -1 if not found
+    return -1;
+}
+
+void printCurRoom(struct room** rooms, int curRoom) {
+    printf("CURRENT LOCATION: %s\n", rooms[curRoom]->name);
+    printf("POSSIBLE CONNECTIONS: ");
+    int i = 0;
+    for (i = 0; i < rooms[curRoom]->connections; i++) {
+        printf("%s", rooms[curRoom]->connected[i]);
+        if (i != (rooms[curRoom]->connections - 1)) {
+            printf(", ");
+        }
+    }
+    printf(".\n");
+}
+
+void getUserInput(struct room** rooms, int *curRoom) {
+    size_t bufferSize = 0;
+    char* userInput = NULL;
+    char connectedRooms[128];
+    int charsEntered;
+
+    memset(connectedRooms, '\0', sizeof(connectedRooms));
+    strcpy(connectedRooms, rooms[*curRoom]->connected[0]);
+
+    int i;
+    for (i = 1; i < rooms[*curRoom]->connections; i++) {
+        strcat(connectedRooms, " ");
+        strcat(connectedRooms, rooms[*curRoom]->connected[i]);
+    }
+
+    while(1) {
+        printf("WHERE TO? >");
+        charsEntered = getline(&userInput, &bufferSize, stdin);
+        userInput[charsEntered - 1] = '\0';
+        if ((strstr(connectedRooms, userInput) == NULL) &&
+            (strcmp(userInput, "time") != 0)) {
+            printf("HUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n");
+            free(userInput);
+            bufferSize = 0;
+            userInput = NULL;
+        }
+        else if (strcmp(userInput, "time") == 0) {
+            // Do time stuff
+            free(userInput);
+            return;
+        }
+        else {
+            // Move player to the specified room
+            *curRoom = findRoomInd(rooms, userInput);
+            free(userInput);
+            return;
+        }
+    }
+}
+
 int main() {
     DIR* rootDir = opendir(".");
 
@@ -142,15 +208,12 @@ int main() {
     }
     closedir(newestDir);
 
-    for (int j = 0; j < 7; j++) {
-        printf("Room %d\n", j);
-        printf("Room name: %s\n", rooms[j]->name);
-        printf("Room type: %s\n", rooms[j]->roomType);
-        printf("Connections: %d\n", rooms[j]->connections);
-        for (int k = 0; k < 6; k++) {
-            printf("Connected to: %s\n", rooms[j]->connected[k]);
-        }
-        printf("\n");
+    // Start the adventure game
+    int curRoom = 0;
+    while (strcmp(rooms[curRoom]->roomType, "END_ROOM") != 0) {
+        printCurRoom(rooms, curRoom);
+        getUserInput(rooms, &curRoom);
     }
+
     return 0;
 }
