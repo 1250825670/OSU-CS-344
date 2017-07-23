@@ -29,7 +29,28 @@ int isConnected(struct room* curRoom, char* roomInput);
 void setRoomType(struct room* room1, char* newRoomType);
 int findRoomInd(struct room** rooms, char* roomName);
 void printCurRoom(struct room** rooms, int curRoom);
-void getUserInput(struct room** rooms, int *curRoom, struct path* curPath);
+
+void* setTime(void* myMutex) {
+    pthread_mutex_lock(myMutex);
+    FILE* timeFile = fopen("currentTime.txt", "w");
+    time_t curTime;
+    char* timeStr;
+    curTime = time(0);
+    timeStr = ctime(&curTime);
+    fputs(timeStr, timeFile);
+    fclose(timeFile);
+    pthread_mutex_unlock(myMutex);
+    return NULL;
+}
+
+void* getTime() {
+    FILE* timeFile = fopen("currentTime.txt", "r");
+    char timestamp[64];
+    fgets(timestamp, sizeof(timestamp), timeFile);
+    printf("\n%s\n", timestamp);
+    fclose(timeFile);
+    return NULL;
+}
 
 struct room* createNewRoom(char* newName, char* newRoomType) {
     struct room* newRoom = malloc(sizeof(struct room));
@@ -114,56 +135,11 @@ void printCurRoom(struct room** rooms, int curRoom) {
     printf(".\n");
 }
 
-void getUserInput(struct room** rooms, int *curRoom, struct path* curPath) {
-    size_t bufferSize = 0;
-    char* userInput = NULL;
-    char connectedRooms[128];
-    int charsEntered;
-
-    memset(connectedRooms, '\0', sizeof(connectedRooms));
-    strcpy(connectedRooms, rooms[*curRoom]->connected[0]);
-
-    int i;
-    for (i = 1; i < rooms[*curRoom]->connections; i++) {
-        strcat(connectedRooms, " ");
-        strcat(connectedRooms, rooms[*curRoom]->connected[i]);
-    }
-
-    while(1) {
-        printf("WHERE TO? >");
-        charsEntered = getline(&userInput, &bufferSize, stdin);
-        userInput[charsEntered - 1] = '\0';
-        if ((isConnected(rooms[*curRoom], userInput) == 0) &&
-            (strcmp(userInput, "time") != 0)) {
-            printf("\nHUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n\n");
-            free(userInput);
-            bufferSize = 0;
-            userInput = NULL;
-        }
-        else if (strcmp(userInput, "time") == 0) {
-            // Do time stuff
-            time_t curTime;
-            char* timeStr;
-            curTime = time(0);
-            timeStr = ctime(&curTime);
-
-            printf("\n%s\n", timeStr);
-            free(userInput);
-            bufferSize = 0;
-            userInput = NULL;
-        }
-        else {
-            // Move player to the specified room
-            *curRoom = findRoomInd(rooms, userInput);
-            addPath(curPath, *curRoom);
-            printf("\n");
-            free(userInput);
-            return;
-        }
-    }
-}
-
 int main() {
+    int result_code;
+    pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&myMutex);
+
     DIR* rootDir = opendir(".");
 
     if (rootDir < 0) {
@@ -263,10 +239,58 @@ int main() {
 
     // Start the adventure game
     int curRoom = 0;
+    size_t bufferSize = 0;
+    pthread_t timeThread;
+    char* userInput = NULL;
+    char connectedRooms[128];
+    int charsEntered;
+    int breakLoop = 0;
+
     struct path* gamePath = createNewPath();
     while (strcmp(rooms[curRoom]->roomType, "END_ROOM") != 0) {
+        breakLoop = 0;
         printCurRoom(rooms, curRoom);
-        getUserInput(rooms, &curRoom, gamePath);
+
+        memset(connectedRooms, '\0', sizeof(connectedRooms));
+        strcpy(connectedRooms, rooms[curRoom]->connected[0]);
+
+        for (i = 1; i < rooms[curRoom]->connections; i++) {
+            strcat(connectedRooms, " ");
+            strcat(connectedRooms, rooms[curRoom]->connected[i]);
+        }
+
+        while (breakLoop == 0) {
+            printf("WHERE TO? >");
+            charsEntered = getline(&userInput, &bufferSize, stdin);
+            userInput[charsEntered - 1] = '\0';
+            if ((isConnected(rooms[curRoom], userInput) == 0) &&
+                (strcmp(userInput, "time") != 0)) {
+                printf("\nHUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n\n");
+                free(userInput);
+                bufferSize = 0;
+                userInput = NULL;
+            }
+            else if (strcmp(userInput, "time") == 0) {
+                pthread_mutex_unlock(&myMutex);
+                result_code = pthread_create(&timeThread, NULL, setTime, &myMutex);
+                pthread_join(timeThread, NULL);
+                pthread_mutex_lock(&myMutex);
+                getTime();
+                free(userInput);
+                bufferSize = 0;
+                userInput = NULL;
+            }
+            else {
+                // Move player to the specified room
+                curRoom = findRoomInd(rooms, userInput);
+                addPath(gamePath, curRoom);
+                printf("\n");
+                free(userInput);
+                bufferSize = 0;
+                userInput = NULL;
+                breakLoop = 1;
+            }
+        }
     }
     printf("YOU HAVE FOUND THE END ROOM. CONGRATULATIONS!\n");
 
