@@ -214,6 +214,7 @@ int main() {
         printCurRoom(rooms, curRoom);
         getUserInput(rooms, &curRoom);
     }
+    printf("YOU HAVE FOUND THE END ROOM. CONGRATULATIONS!\n");
 
     return 0;
 }

@@ -22,11 +22,6 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
 
     newRoom->connections = 0;
 
-<<<<<<< HEAD
-    int i = 0;
-    for (i = 0; i < 6; i++) {
-        newRoom->connected[i] = -1;
-=======
     memset(newRoom->roomType, '\0', sizeof(newRoom->roomType));
     strcpy(newRoom->roomType, newRoomType);
 
@@ -34,7 +29,6 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
     for (i = 0; i < 6; i++) {
         memset(newRoom->connected[i], '\0', sizeof(newRoom->connected[i]));
         strcpy(newRoom->connected[i], "None");
->>>>>>> readfile
     }
     return newRoom;
 }
@@ -121,20 +115,12 @@ void addRoomConnection(struct room* room1, struct room* room2) {
     int i = 0;
     // Check to see if these rooms are already connected
     for (i = 0; i < room1->connections; i++) {
-<<<<<<< HEAD
-        if (room1->connected[i] == room2->id) {
-=======
         if (strcmp(room1->connected[i], room2->name) == 0) {
->>>>>>> readfile
             return;
         }
     }
     for (i = 0; i < room2->connections; i++) {
-<<<<<<< HEAD
-        if (room2->connected[i] == room1->id) {
-=======
         if (strcmp(room2->connected[i], room1->name) == 0) {
->>>>>>> readfile
             return;
         }
     }
