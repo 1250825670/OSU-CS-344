@@ -134,7 +134,7 @@ void getUserInput(struct room** rooms, int *curRoom, struct path* curPath) {
         userInput[charsEntered - 1] = '\0';
         if ((isConnected(rooms[*curRoom], userInput) == 0) &&
             (strcmp(userInput, "time") != 0)) {
-            printf("HUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n");
+            printf("\nHUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n\n");
             free(userInput);
             bufferSize = 0;
             userInput = NULL;
@@ -148,6 +148,7 @@ void getUserInput(struct room** rooms, int *curRoom, struct path* curPath) {
             // Move player to the specified room
             *curRoom = findRoomInd(rooms, userInput);
             addPath(curPath, *curRoom);
+            printf("\n");
             free(userInput);
             return;
         }
