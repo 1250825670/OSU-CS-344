@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <dirent.h>
+#include <pthread.h>
 
 struct room {
     char name[16];
@@ -141,8 +142,15 @@ void getUserInput(struct room** rooms, int *curRoom, struct path* curPath) {
         }
         else if (strcmp(userInput, "time") == 0) {
             // Do time stuff
+            time_t curTime;
+            char* timeStr;
+            curTime = time(0);
+            timeStr = ctime(&curTime);
+
+            printf("\n%s\n", timeStr);
             free(userInput);
-            return;
+            bufferSize = 0;
+            userInput = NULL;
         }
         else {
             // Move player to the specified room
