@@ -269,6 +269,9 @@ int main() {
         printf("%s\n", rooms[gamePath->stepsArr[i]]->name);
     }
 
+    for (i = 0; i < 7; i++) {
+        free(rooms[i]);
+    }
     free(gamePath);
 
     return 0;

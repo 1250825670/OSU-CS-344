@@ -230,5 +230,8 @@ int main() {
     }
 
     freeRoomNames(roomNames);
+    for (i = 0; i < 7; i++) {
+        free(rooms[i]);
+    }
     return 0;
 }
