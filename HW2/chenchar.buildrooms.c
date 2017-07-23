@@ -8,23 +8,33 @@
 #include <time.h>
 
 struct room {
-    int id;
-    char* name;
-    char* roomType;
+    char name[16];
+    char roomType[16];
     int connections;
-    int connected[6];
+    char connected[6][32];
 };
 
-struct room* createNewRoom(int newID, char* newName, char* newRoomType) {
+struct room* createNewRoom(char* newName, char* newRoomType) {
     struct room* newRoom = malloc(sizeof(struct room));
-    newRoom->id = newID;
-    newRoom->name = newName;
-    newRoom->connections = 0;
-    newRoom->roomType = newRoomType;
 
+    memset(newRoom->name, '\0', sizeof(newRoom->name));
+    strcpy(newRoom->name, newName);
+
+    newRoom->connections = 0;
+
+<<<<<<< HEAD
     int i = 0;
     for (i = 0; i < 6; i++) {
         newRoom->connected[i] = -1;
+=======
+    memset(newRoom->roomType, '\0', sizeof(newRoom->roomType));
+    strcpy(newRoom->roomType, newRoomType);
+
+    int i = 0;
+    for (i = 0; i < 6; i++) {
+        memset(newRoom->connected[i], '\0', sizeof(newRoom->connected[i]));
+        strcpy(newRoom->connected[i], "None");
+>>>>>>> readfile
     }
     return newRoom;
 }
@@ -111,12 +121,20 @@ void addRoomConnection(struct room* room1, struct room* room2) {
     int i = 0;
     // Check to see if these rooms are already connected
     for (i = 0; i < room1->connections; i++) {
+<<<<<<< HEAD
         if (room1->connected[i] == room2->id) {
+=======
+        if (strcmp(room1->connected[i], room2->name) == 0) {
+>>>>>>> readfile
             return;
         }
     }
     for (i = 0; i < room2->connections; i++) {
+<<<<<<< HEAD
         if (room2->connected[i] == room1->id) {
+=======
+        if (strcmp(room2->connected[i], room1->name) == 0) {
+>>>>>>> readfile
             return;
         }
     }
@@ -125,8 +143,8 @@ void addRoomConnection(struct room* room1, struct room* room2) {
     }
 
     // If these rooms can be connected, then connect them
-    room1->connected[room1->connections] = room2->id;
-    room2->connected[room2->connections] = room1->id;
+    strcpy(room1->connected[room1->connections], room2->name);
+    strcpy(room2->connected[room2->connections], room1->name);
     room1->connections++;
     room2->connections++;
 }
@@ -160,13 +178,13 @@ int main() {
     int i = 0;
     for (i = 0; i < 7; i++) {
         if (i == 0) {
-            rooms[i] = createNewRoom(i, roomNames[i], "START_ROOM");
+            rooms[i] = createNewRoom(roomNames[i], "START_ROOM");
         }
         else if (i == 6) {
-            rooms[i] = createNewRoom(i, roomNames[i], "END_ROOM");
+            rooms[i] = createNewRoom(roomNames[i], "END_ROOM");
         }
         else {
-            rooms[i] = createNewRoom(i, roomNames[i], "MID_ROOM");
+            rooms[i] = createNewRoom(roomNames[i], "MID_ROOM");
         }
     }
 
@@ -210,7 +228,7 @@ int main() {
             strcpy(textToWrite, "CONNECTION ");
             strcat(textToWrite, connectionNum);
             strcat(textToWrite, ": ");
-            strcat(textToWrite, rooms[rooms[i]->connected[j - 1]]->name);
+            strcat(textToWrite, rooms[i]->connected[j - 1]);
             strcat(textToWrite, "\n");
             nwritten = write(fileDesc, textToWrite,
                 strlen(textToWrite) * sizeof(char));
