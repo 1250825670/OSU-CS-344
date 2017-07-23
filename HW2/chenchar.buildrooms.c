@@ -1,3 +1,6 @@
+// chenchar.buildrooms.c
+// Programmer: Charles Chen
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -14,7 +17,15 @@ struct room {
     char connected[6][32];
 };
 
+struct room* createNewRoom(char* newName, char* newRoomType);
+char** createRoomNames();
+void freeRoomNames(char** rooms);
+int roomsConnectionsFull(struct room** rooms);
+void addRoomConnection(struct room* room1, struct room* room2);
+void connectRooms(struct room** rooms);
+
 struct room* createNewRoom(char* newName, char* newRoomType) {
+    // Returns pointer to a new room, with specified name and room type
     struct room* newRoom = malloc(sizeof(struct room));
 
     memset(newRoom->name, '\0', sizeof(newRoom->name));
@@ -25,6 +36,8 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
     memset(newRoom->roomType, '\0', sizeof(newRoom->roomType));
     strcpy(newRoom->roomType, newRoomType);
 
+    // connected represents the names of rooms that are connected to this one
+    // For initialization, set all of these names to None
     int i = 0;
     for (i = 0; i < 6; i++) {
         memset(newRoom->connected[i], '\0', sizeof(newRoom->connected[i]));
@@ -54,6 +67,8 @@ char** createRoomNames() {
     char* room7 = "Grey";
     char* room8 = "Magenta";
     char* room9 = "Party";
+
+    // Set rooms array to contain all of the specified room names
     rooms[0] = room0;
     rooms[1] = room1;
     rooms[2] = room2;
@@ -136,6 +151,8 @@ void addRoomConnection(struct room* room1, struct room* room2) {
 }
 
 void connectRooms(struct room** rooms) {
+    // Will continue to add conenctions between rooms until all rooms have
+    // between 3 and 6 connections (inclusive)
     while (roomsConnectionsFull(rooms) == 0) {
         addRoomConnection(rooms[rand() % 7], rooms[rand() % 7]);
     }
@@ -146,9 +163,11 @@ int main() {
 
     char dirName[30] = "chenchar.rooms.";
     char curPIDChar[10];
-    snprintf(curPIDChar, 10, "%d", curPID);
+    snprintf(curPIDChar, 10, "%d", curPID); // Converts PID to char
 
     strcat(dirName, curPIDChar);
+
+    // Creates directory with appropriate name (with current PID as suffix)
     int newDir = mkdir(dirName, 0755);
     if (newDir < 0) {
         fprintf(stderr, "Could not create directory\n");
@@ -160,6 +179,8 @@ int main() {
     char** roomNames = createRoomNames();
 
     // Creates room structs, initializes them, and gives them room types
+    // Stores the room structs in an array of pointers to room structs, called
+    // rooms
     struct room* rooms[7];
     int i = 0;
     for (i = 0; i < 7; i++) {
@@ -182,6 +203,7 @@ int main() {
     char roomFileNum[10];
     ssize_t nwritten;
     for (i = 0; i < 7; i++) {
+        // Constructs the filename of current room
         memset(roomFilename, '\0', sizeof(roomFilename));
         strcpy(roomFilename, dirName);
         snprintf(roomFileNum, 10, "%d", i);
@@ -198,12 +220,16 @@ int main() {
 
         // Build up strings to write and write them to file
         char textToWrite[100];
+
+        // Builds up the first line of output, containing the room name
         memset(textToWrite, '\0', sizeof(textToWrite));
         strcpy(textToWrite, "ROOM NAME: ");
         strcat(textToWrite, rooms[i]->name);
         strcat(textToWrite, "\n");
         nwritten = write(fileDesc, textToWrite,
             strlen(textToWrite) * sizeof(char));
+
+        // Create an output line for every room the current one is connected to
         int j = 1;
         for (j = 1; j <= rooms[i]->connections; j++) {
             // Convert connection number to string for output
@@ -219,6 +245,8 @@ int main() {
             nwritten = write(fileDesc, textToWrite,
                 strlen(textToWrite) * sizeof(char));
         }
+
+        // Creates output line for the room type
         memset(textToWrite, '\0', sizeof(textToWrite));
         strcpy(textToWrite, "ROOM TYPE: ");
         strcat(textToWrite, rooms[i]->roomType);
@@ -229,6 +257,7 @@ int main() {
         close(fileDesc);
     }
 
+    // Free dynamically allocated memory
     freeRoomNames(roomNames);
     for (i = 0; i < 7; i++) {
         free(rooms[i]);

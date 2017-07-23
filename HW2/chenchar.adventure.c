@@ -1,3 +1,6 @@
+// chenchar.adventure.c
+// Programmer: Charles Chen
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -21,6 +24,8 @@ struct path {
     int stepsArr[32];
 };
 
+void* setTime(void* myMutex);
+void* getTime();
 struct room* createNewRoom(char* newName, char* newRoomType);
 struct path* createNewPath();
 void addPath(struct path* curPath, int curRoom);
@@ -31,19 +36,30 @@ int findRoomInd(struct room** rooms, char* roomName);
 void printCurRoom(struct room** rooms, int curRoom);
 
 void* setTime(void* myMutex) {
+    // Takes the current time and writes it to file
+
+    // Attempt to access mutex. Locks if main thread has not released mutex
     pthread_mutex_lock(myMutex);
+
     FILE* timeFile = fopen("currentTime.txt", "w");
     time_t curTime;
     char* timeStr;
+
+    // Gets current time and formats it
     curTime = time(0);
     timeStr = ctime(&curTime);
+
+    // Writes time to file
     fputs(timeStr, timeFile);
     fclose(timeFile);
+
+    // Releases lock on mutex so main thread can regain control
     pthread_mutex_unlock(myMutex);
     return NULL;
 }
 
 void* getTime() {
+    // Prints out current time from file
     FILE* timeFile = fopen("currentTime.txt", "r");
     char timestamp[64];
     fgets(timestamp, sizeof(timestamp), timeFile);
@@ -53,6 +69,7 @@ void* getTime() {
 }
 
 struct room* createNewRoom(char* newName, char* newRoomType) {
+    // Returns pointer to a new room, with specified name and room type
     struct room* newRoom = malloc(sizeof(struct room));
 
     memset(newRoom->name, '\0', sizeof(newRoom->name));
@@ -63,6 +80,8 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
     memset(newRoom->roomType, '\0', sizeof(newRoom->roomType));
     strcpy(newRoom->roomType, newRoomType);
 
+    // connected represents the names of rooms that are connected to this one
+    // For initialization, set all of these names to None
     int i = 0;
     for (i = 0; i < 6; i++) {
         memset(newRoom->connected[i], '\0', sizeof(newRoom->connected[i]));
@@ -72,9 +91,14 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
 }
 
 struct path* createNewPath() {
+    // A path is a struct that contains the order in which rooms are visited
+    // createNewPath() initializes a new path struct and returns a pointer to it
     struct path* newPath = malloc(sizeof(struct path));
 
+    // Initialize with 0 steps
     newPath->steps = 0;
+
+    // Initialize stepsArr with every value of array with sentinel value of -1
     int i;
     for (i = 0; i < 32; i++) {
         newPath->stepsArr[i] = -1;
@@ -84,11 +108,14 @@ struct path* createNewPath() {
 }
 
 void addPath(struct path* curPath, int curRoom) {
+    // Adds the index of a room in the rooms array to the specified path
     curPath->stepsArr[curPath->steps] = curRoom;
     curPath->steps++;
 }
 
 void addRoomConnection(struct room* room1, char* roomConnection) {
+    // Adds a connection from the current room to the room with the specified
+    // name
     strcpy(room1->connected[room1->connections], roomConnection);
     room1->connections++;
 }
@@ -105,6 +132,7 @@ int isConnected(struct room* curRoom, char* roomInput) {
 }
 
 void setRoomType(struct room* room1, char* newRoomType) {
+    // Sets the room type of the given room to the specified type
     memset(room1->roomType, '\0', sizeof(room1->roomType));
     strcpy(room1->roomType, newRoomType);
 }
@@ -123,6 +151,7 @@ int findRoomInd(struct room** rooms, char* roomName) {
 }
 
 void printCurRoom(struct room** rooms, int curRoom) {
+    // Prints the name of the current room and the rooms it is connected to
     printf("CURRENT LOCATION: %s\n", rooms[curRoom]->name);
     printf("POSSIBLE CONNECTIONS: ");
     int i = 0;
@@ -136,12 +165,12 @@ void printCurRoom(struct room** rooms, int curRoom) {
 }
 
 int main() {
+    // Locks mutex with main thread
     int result_code;
     pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&myMutex);
 
     DIR* rootDir = opendir(".");
-
     if (rootDir < 0) {
         fprintf(stderr, "Could not open directory\n");
         perror("Error opening directory");
@@ -159,6 +188,7 @@ int main() {
         // Search for directories with chenchar.rooms prefix
         if (strstr(curFile->d_name, "chenchar.rooms.") != NULL) {
             dirExists = 1;
+            // Finds room with most recently modified timestamp
             stat(curFile->d_name, &fileStats);
             if ((long int)(fileStats.st_mtime) > modifiedTime) {
                 // Finds most recently modified rooms directory
@@ -178,13 +208,15 @@ int main() {
 
     DIR* newestDir = opendir(newestDirName);
 
+    // Create an array to store pointers to all rooms
     struct room* rooms[7];
+
+    // Initialize parameters needed to read room files
     FILE* curRoomFile;
     ssize_t nread;
     char readBuffer[512];
     char filenameBuffer[128];
     int i = 0;
-
     char curRoomName[32];
     char curConnectionName[32];
     char curRoomType[32];
@@ -193,12 +225,14 @@ int main() {
     while ((curFile = readdir(newestDir)) != NULL) {
         // Opens the file if it is a rooms file
         if (curFile->d_type == DT_REG) {
+            // Clears char buffers
             memset(readBuffer, '\0', sizeof(readBuffer));
             memset(filenameBuffer, '\0', sizeof(filenameBuffer));
             memset(curRoomName, '\0', sizeof(curRoomName));
             memset(curConnectionName, '\0', sizeof(curConnectionName));
             memset(curRoomType, '\0', sizeof(curRoomType));
 
+            // Constructs room filename to open
             strcpy(filenameBuffer, newestDirName);
             strcat(filenameBuffer, "/");
             strcat(filenameBuffer, curFile->d_name);
@@ -209,11 +243,12 @@ int main() {
                 exit(1);
             }
 
-            // Get roomName and strip trailing newline
+            // Get room name and strip trailing newline
             fgets(readBuffer, sizeof(readBuffer), curRoomFile);
             readBuffer[strlen(readBuffer) - 1] = '\0';
             strcpy(curRoomName, &readBuffer[11]);
 
+            // Create new room struct with read-in room name
             rooms[i] = createNewRoom(curRoomName, "MID_ROOM");
 
             // Get connections and room type
@@ -242,48 +277,59 @@ int main() {
     size_t bufferSize = 0;
     pthread_t timeThread;
     char* userInput = NULL;
-    char connectedRooms[128];
     int charsEntered;
     int breakLoop = 0;
-
     struct path* gamePath = createNewPath();
+
+    // Run the game until the END_ROOM is reached
     while (strcmp(rooms[curRoom]->roomType, "END_ROOM") != 0) {
         breakLoop = 0;
         printCurRoom(rooms, curRoom);
 
-        memset(connectedRooms, '\0', sizeof(connectedRooms));
-        strcpy(connectedRooms, rooms[curRoom]->connected[0]);
-
-        for (i = 1; i < rooms[curRoom]->connections; i++) {
-            strcat(connectedRooms, " ");
-            strcat(connectedRooms, rooms[curRoom]->connected[i]);
-        }
-
+        // Get user input
         while (breakLoop == 0) {
             printf("WHERE TO? >");
             charsEntered = getline(&userInput, &bufferSize, stdin);
             userInput[charsEntered - 1] = '\0';
             if ((isConnected(rooms[curRoom], userInput) == 0) &&
                 (strcmp(userInput, "time") != 0)) {
+                // Prompt user for another input if the input is neither a room
+                // that the current one is connected to, or "time"
                 printf("\nHUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n\n");
                 free(userInput);
                 bufferSize = 0;
                 userInput = NULL;
             }
             else if (strcmp(userInput, "time") == 0) {
+                // If user inputs "time", then update the currentTime.txt file
+                // and print the current time
+
+                // Main thread needs to release mutex
                 pthread_mutex_unlock(&myMutex);
+
+                // Creates a new timeThread to update the currentTime.txt file
+                // Passes myMutex to function so that timeThread can lock the
+                // mutex within the setTime function
                 result_code = pthread_create(&timeThread, NULL, setTime, &myMutex);
+
+                // Block until timeThread unlocks and terminates
                 pthread_join(timeThread, NULL);
+
+                // Lock mutex with main thread again
                 pthread_mutex_lock(&myMutex);
+
+                // Prints the time from within main thread
                 getTime();
+
                 free(userInput);
                 bufferSize = 0;
                 userInput = NULL;
             }
             else {
-                // Move player to the specified room
+                // Move player to the specified room and add to path
                 curRoom = findRoomInd(rooms, userInput);
                 addPath(gamePath, curRoom);
+
                 printf("\n");
                 free(userInput);
                 bufferSize = 0;
@@ -301,6 +347,7 @@ int main() {
         printf("%s\n", rooms[gamePath->stepsArr[i]]->name);
     }
 
+    // Free dynamically allocated memory
     for (i = 0; i < 7; i++) {
         free(rooms[i]);
     }
