@@ -15,6 +15,21 @@ struct room {
     char connected[6][32];
 };
 
+struct path {
+    int steps;
+    int stepsArr[32];
+};
+
+struct room* createNewRoom(char* newName, char* newRoomType);
+struct path* createNewPath();
+void addPath(struct path* curPath, int curRoom);
+void addRoomConnection(struct room* room1, char* roomConnection);
+int isConnected(struct room* curRoom, char* roomInput);
+void setRoomType(struct room* room1, char* newRoomType);
+int findRoomInd(struct room** rooms, char* roomName);
+void printCurRoom(struct room** rooms, int curRoom);
+void getUserInput(struct room** rooms, int *curRoom, struct path* curPath);
+
 struct room* createNewRoom(char* newName, char* newRoomType) {
     struct room* newRoom = malloc(sizeof(struct room));
 
@@ -34,9 +49,37 @@ struct room* createNewRoom(char* newName, char* newRoomType) {
     return newRoom;
 }
 
+struct path* createNewPath() {
+    struct path* newPath = malloc(sizeof(struct path));
+
+    newPath->steps = 0;
+    int i;
+    for (i = 0; i < 32; i++) {
+        newPath->stepsArr[i] = -1;
+    }
+
+    return newPath;
+}
+
+void addPath(struct path* curPath, int curRoom) {
+    curPath->stepsArr[curPath->steps] = curRoom;
+    curPath->steps++;
+}
+
 void addRoomConnection(struct room* room1, char* roomConnection) {
     strcpy(room1->connected[room1->connections], roomConnection);
     room1->connections++;
+}
+
+int isConnected(struct room* curRoom, char* roomInput) {
+    // Returns 1 if the roomInput is connected to curRoom, 0 otherwise
+    int i;
+    for (i = 0; i < curRoom->connections; i++) {
+        if (strcmp(curRoom->connected[i], roomInput) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void setRoomType(struct room* room1, char* newRoomType) {
@@ -70,7 +113,7 @@ void printCurRoom(struct room** rooms, int curRoom) {
     printf(".\n");
 }
 
-void getUserInput(struct room** rooms, int *curRoom) {
+void getUserInput(struct room** rooms, int *curRoom, struct path* curPath) {
     size_t bufferSize = 0;
     char* userInput = NULL;
     char connectedRooms[128];
@@ -89,7 +132,7 @@ void getUserInput(struct room** rooms, int *curRoom) {
         printf("WHERE TO? >");
         charsEntered = getline(&userInput, &bufferSize, stdin);
         userInput[charsEntered - 1] = '\0';
-        if ((strstr(connectedRooms, userInput) == NULL) &&
+        if ((isConnected(rooms[*curRoom], userInput) == 0) &&
             (strcmp(userInput, "time") != 0)) {
             printf("HUH? I DON’T UNDERSTAND THAT ROOM. TRY AGAIN.\n");
             free(userInput);
@@ -104,6 +147,7 @@ void getUserInput(struct room** rooms, int *curRoom) {
         else {
             // Move player to the specified room
             *curRoom = findRoomInd(rooms, userInput);
+            addPath(curPath, *curRoom);
             free(userInput);
             return;
         }
@@ -210,11 +254,21 @@ int main() {
 
     // Start the adventure game
     int curRoom = 0;
+    struct path* gamePath = createNewPath();
     while (strcmp(rooms[curRoom]->roomType, "END_ROOM") != 0) {
         printCurRoom(rooms, curRoom);
-        getUserInput(rooms, &curRoom);
+        getUserInput(rooms, &curRoom, gamePath);
     }
     printf("YOU HAVE FOUND THE END ROOM. CONGRATULATIONS!\n");
+
+    printf("YOU TOOK %d STEPS. ", gamePath->steps);
+    printf("YOUR PATH TO VICTORY WAS:\n");
+
+    for (i = 0; i < gamePath->steps; i++) {
+        printf("%s\n", rooms[gamePath->stepsArr[i]]->name);
+    }
+
+    free(gamePath);
 
     return 0;
 }
