@@ -4,18 +4,49 @@
 #include <string.h>
 #include <signal.h>
 #include <assert.h>
+#include <sys/types.h>
+
+int* initArr();
+void clearArr(int*);
+void setArr(int*, int);
+
+// The following functions are helpers to work with an array that is used to
+// keep track of strings that were allocated dynamically, so that they can be
+// freed later
+int* initArr() {
+    // Returns a pointer to an array of 512 elements with all values set to 0
+    int* arr = malloc(sizeof(int) * 512);
+    clearArr(arr);
+    return arr;
+}
+
+void clearArr(int* arr) {
+    // Takes a pointer to an array of 512 elements and sets all values to 0
+    int i;
+    for (i = 0; i < 512; i++) {
+        arr[i] = 0;
+    }
+}
+
+void setArr(int* arr, int ind) {
+    // Takes a pointer to an array, and sets the value of the given index to 1
+    arr[ind] = 1;
+}
 
 int main() {
     char* inputBuffer = NULL;
     size_t bufferSize = 0;
     int charsEntered = 0;
-    char *home_var = getenv("HOME");
     char current_dir[100];
     int childExitMethod = -5;
+    pid_t curPid;
     pid_t childPid = -5;
     int exitStatus = 0;
     char exitStatusChar[4];
     int termSignal = -5;
+
+    char *home_var = getenv("HOME");
+    int* charsToFree = initArr();
 
     while (1) {
         // Writes prompt to screen
@@ -77,6 +108,34 @@ int main() {
             continue;
         }
 
+        // Expand out any instance of $$ to the current PID
+        curPid = getpid();
+        char curPidChar[10];
+        memset(curPidChar, '\0', sizeof(curPidChar));
+        snprintf(curPidChar, 10, "%d", curPid);
+        int pidLen = strlen(curPidChar);
+        char* startOfExpand;
+        char* newStr;
+
+        int i;
+        for (i = 0; i < argCount; i++) {
+            startOfExpand = strstr(newArgv[i], "$$");
+            if (startOfExpand != NULL) {
+                int lenOfOrig = strlen(newArgv[i]);
+
+                // Construct a new string which is the expansion of $$
+                newStr = malloc(sizeof(char) * (lenOfOrig - 2 + pidLen + 1));
+                strncpy(newStr, newArgv[i], (startOfExpand - newArgv[i])/sizeof(char));
+                strncpy(newStr + sizeof(char) * (startOfExpand - newArgv[i]), curPidChar, pidLen);
+                strcat(newStr, newArgv[i] + sizeof(char)*(startOfExpand - newArgv[i] + 2));
+                newArgv[i] = newStr;
+
+                // Keep track of this index - malloc'd memory for this string,
+                // so need to free it later
+                setArr(charsToFree, i);
+            }
+        }
+
         // Add NULL to the argv array, as execv and execvp commands expect this
         newArgv = realloc(newArgv, sizeof(char*) * (argCount + 1));
         assert(newArgv != 0);
@@ -95,6 +154,16 @@ int main() {
         }
 
         else if (strcmp(inputBuffer, "exit") == 0) {
+            // Allocated memory for some strings in argv if $$ expansion
+            // was required. Need to free this memory
+            for (i = 0; i < 512; i++) {
+                if (charsToFree[i] == 1) {
+                    free(newArgv[i]);
+                }
+            }
+            clearArr(charsToFree);
+            free(charsToFree);
+
             free(newArgv);
             bufferSize = 0;
             free(inputBuffer);
@@ -147,6 +216,8 @@ int main() {
             if (childPid == 0) {
                 if (execvp(newArgv[0], newArgv) < 0) {
                     write(2, "Error: Command not found\n", 25);
+                    free(newArgv);
+                    free(inputBuffer);
                     exit(1);
                 }
             }
@@ -163,6 +234,15 @@ int main() {
                 }
             }
         }
+
+        // Allocated memory for some strings in argv if $$ expansion
+        // was required. Need to free this memory
+        for (i = 0; i < 512; i++) {
+            if (charsToFree[i] == 1) {
+                free(newArgv[i]);
+            }
+        }
+        clearArr(charsToFree);
 
         free(newArgv);
         bufferSize = 0;
