@@ -13,6 +13,7 @@
 int* initArr();
 void clearArr(int*);
 void setArr(int*, int);
+int findChar(char**, char*, int);
 
 // The following functions are helpers to work with an array that is used to
 // keep track of strings that were allocated dynamically, so that they can be
@@ -35,6 +36,22 @@ void clearArr(int* arr) {
 void setArr(int* arr, int ind) {
     // Takes a pointer to an array, and sets the value of the given index to 1
     arr[ind] = 1;
+}
+
+int findChar(char** newArgv, char* charToFind, int newArgvSize) {
+    // Given an array of strings, finds the index of the array where the
+    // specified string can be found. Returns -1 if not found
+    int i;
+    if (newArgv == NULL || charToFind == NULL) {
+        return -1;
+    }
+
+    for (i = 0; i < newArgvSize; i++) {
+        if (strcmp(newArgv[i], charToFind) == 0) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 int main() {
@@ -218,23 +235,96 @@ int main() {
 
             // Execute this command if we are in the child process
             if (childPid == 0) {
-                if (execvp(newArgv[0], newArgv) < 0) {
-                    write(2, "Error: Command not found\n", 25);
-                    free(newArgv);
-                    free(inputBuffer);
-                    exit(1);
+                // Indices of redirection operators
+                int stdinRedir = findChar(newArgv, "<", argCount);
+                int stdoutRedir = findChar(newArgv, ">", argCount);
+                char* stdinRedirArg = NULL;
+                char* stdoutRedirArg = NULL;
+
+                if (stdinRedir == -1 && stdoutRedir == -1) {
+                    // Run the commands if there is no IO redirection
+                    // Inside child process, can ignore &
+                    if (strcmp(newArgv[argCount - 1], "&") == 0) {
+                        newArgv[argCount - 1] = NULL;
+                    }
+                    if (execvp(newArgv[0], newArgv) < 0) {
+                        write(2, "Error: Command not found\n", 25);
+                        fflush(stdout);
+                        free(newArgv);
+                        free(inputBuffer);
+                        exit(1);
+                    }
+                }
+
+                else {
+                    if (stdinRedir != -1) {
+                        // First, check that stdin redirection argument is valid
+                        if (stdinRedir == argCount - 1 || stdinRedir == 0 ||
+                                stdoutRedir == stdinRedir + 1 ||
+                                strcmp(newArgv[stdinRedir + 1], "&") == 0) {
+                            write(2, "Error: Invalid stdin redirection\n", 33);
+                            fflush(stdout);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
+                        // Save the string that contains the redirection argument
+                        stdinRedirArg = newArgv[stdinRedir + 1];
+
+                        // When executing commands, don't want the redirection
+                        // operators or arguments
+                        newArgv[stdinRedir] = NULL;
+                        newArgv[stdinRedir + 1] = NULL;
+                    }
+                    if (stdoutRedir != -1) {
+                        if (stdoutRedir == argCount - 1 || stdoutRedir == 0 ||
+                                stdinRedir == stdoutRedir + 1 ||
+                                strcmp(newArgv[stdoutRedir + 1], "&") == 0) {
+                            write(2, "Error: Invalid stdout redirection\n", 34);
+                            fflush(stdout);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
+                        // Save the string that contains the redirection argument
+                        stdoutRedirArg = newArgv[stdoutRedir + 1];
+
+                        // When executing commands, don't want the redirection
+                        // operators or arguments
+                        newArgv[stdoutRedir] = NULL;
+                        newArgv[stdoutRedir + 1] = NULL;
+                    }
+                    // TODO: Run commands here
+                    // FIXME: For now, this just ignores IO redirection
+                    if (strcmp(newArgv[argCount - 1], "&") == 0) {
+                        newArgv[argCount - 1] = NULL;
+                    }
+                    if (execvp(newArgv[0], newArgv) < 0) {
+                        write(2, "Error: Command not found\n", 25);
+                        fflush(stdout);
+                        free(newArgv);
+                        free(inputBuffer);
+                        exit(1);
+                    }
                 }
             }
             else {
-                waitpid(childPid, &childExitMethod, 0);
+                if (strcmp(newArgv[argCount - 1], "&") != 0) {
+                    // If command was run in foreground, then block until
+                    // completion of child process
+                    waitpid(childPid, &childExitMethod, 0);
 
-                // Get termination method
-                if (WIFEXITED(childExitMethod) != 0) {
-                    exitStatus = WEXITSTATUS(childExitMethod);
+                    // Get termination method
+                    if (WIFEXITED(childExitMethod) != 0) {
+                        exitStatus = WEXITSTATUS(childExitMethod);
+                    }
+
+                    else if (WIFSIGNALED(childExitMethod) != 0) {
+                        termSignal = WTERMSIG(childExitMethod);
+                    }
                 }
-
-                else if (WIFSIGNALED(childExitMethod) != 0) {
-                    termSignal = WTERMSIG(childExitMethod);
+                else if (strcmp(newArgv[argCount - 1], "&") == 0) {
+                    // Run in background
                 }
             }
         }
