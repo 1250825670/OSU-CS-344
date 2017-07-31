@@ -296,7 +296,7 @@ int main() {
                     }
 
                     // Open stdout file for writing
-                    stdoutFile = open(newArgv[stdoutRedir + 1], O_WRONLY | O_CREAT | O_APPEND, 0644);
+                    stdoutFile = open(newArgv[stdoutRedir + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
                     // Check that file was opened appropriately
                     if (stdoutFile < 0) {
