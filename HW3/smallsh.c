@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 // TODO: Add support for redirection
 // TODO: Add support for background processes
@@ -79,7 +80,9 @@ int main() {
         if (!(charsEntered = getline(&inputBuffer, &bufferSize, stdin))) {
             // For some reason, it wasn't possible to read the character input
             // Close out of the shell if this happens
+            fflush(stdout);
             write(2, "Error: Unable to read character input\n", 38);
+            fflush(stderr);
             exit(1);
         }
 
@@ -209,6 +212,7 @@ int main() {
             }
             else if (argCount >= 3) {
                 // If more than 2 arguments specified, throw an error
+                fflush(stdout);
                 write(2, "cd: string not in pwd\n", 22);
                 fflush(stderr);
                 exitStatus = 1;
@@ -230,46 +234,50 @@ int main() {
         }
 
         else {
+            int stdinRedir = findChar(newArgv, "<", argCount);
+            int stdoutRedir = findChar(newArgv, ">", argCount);
+            int stdinFile = 0;
+            int stdoutFile = 0;
             // Fork a child process to run this command
             childPid = fork();
 
             // Execute this command if we are in the child process
             if (childPid == 0) {
                 // Indices of redirection operators
-                int stdinRedir = findChar(newArgv, "<", argCount);
-                int stdoutRedir = findChar(newArgv, ">", argCount);
-                char* stdinRedirArg = NULL;
-                char* stdoutRedirArg = NULL;
-
-                if (stdinRedir == -1 && stdoutRedir == -1) {
-                    // Run the commands if there is no IO redirection
-                    // Inside child process, can ignore &
-                    if (strcmp(newArgv[argCount - 1], "&") == 0) {
-                        newArgv[argCount - 1] = NULL;
-                    }
-                    if (execvp(newArgv[0], newArgv) < 0) {
-                        write(2, "Error: Command not found\n", 25);
-                        fflush(stdout);
-                        free(newArgv);
-                        free(inputBuffer);
-                        exit(1);
-                    }
-                }
-
-                else {
+                if (!(stdinRedir == -1 && stdoutRedir == -1)) {
                     if (stdinRedir != -1) {
                         // First, check that stdin redirection argument is valid
                         if (stdinRedir == argCount - 1 || stdinRedir == 0 ||
                                 stdoutRedir == stdinRedir + 1 ||
                                 strcmp(newArgv[stdinRedir + 1], "&") == 0) {
-                            write(2, "Error: Invalid stdin redirection\n", 33);
                             fflush(stdout);
+                            write(2, "Error: Invalid stdin redirection\n", 33);
+                            fflush(stderr);
                             free(newArgv);
                             free(inputBuffer);
                             exit(1);
                         }
-                        // Save the string that contains the redirection argument
-                        stdinRedirArg = newArgv[stdinRedir + 1];
+
+                        stdinFile = open(newArgv[stdinRedir + 1], O_RDONLY);
+
+                        if (stdinFile < 0) {
+                            fflush(stdout);
+                            write(2, "Error: Cannot open file for stdin redirection\n", 46);
+                            fflush(stderr);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
+
+                        // Redirects stdin to the open file
+                        if (dup2(stdinFile, 0) < 0) {
+                            fflush(stdout);
+                            write(2, "Error: Issue with stdin redirection\n", 36);
+                            fflush(stderr);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
 
                         // When executing commands, don't want the redirection
                         // operators or arguments
@@ -280,33 +288,57 @@ int main() {
                         if (stdoutRedir == argCount - 1 || stdoutRedir == 0 ||
                                 stdinRedir == stdoutRedir + 1 ||
                                 strcmp(newArgv[stdoutRedir + 1], "&") == 0) {
-                            write(2, "Error: Invalid stdout redirection\n", 34);
                             fflush(stdout);
+                            write(2, "Error: Invalid stdout redirection\n", 34);
+                            fflush(stderr);
                             free(newArgv);
                             free(inputBuffer);
                             exit(1);
                         }
-                        // Save the string that contains the redirection argument
-                        stdoutRedirArg = newArgv[stdoutRedir + 1];
+
+                        stdoutFile = open(newArgv[stdoutRedir + 1], O_WRONLY | O_CREAT | O_APPEND, 0644);
+
+                        if (stdoutFile < 0) {
+                            fflush(stdout);
+                            write(2, "Error: Cannot open file for stdout redirection\n", 47);
+                            fflush(stderr);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
+
+                        // Redirects stdout to the open file
+                        if (dup2(stdoutFile, 1) < 0) {
+                            fflush(stdout);
+                            write(2, "Error: Issue with stdout redirection\n", 37);
+                            fflush(stderr);
+                            free(newArgv);
+                            free(inputBuffer);
+                            exit(1);
+                        }
 
                         // When executing commands, don't want the redirection
                         // operators or arguments
                         newArgv[stdoutRedir] = NULL;
                         newArgv[stdoutRedir + 1] = NULL;
                     }
-                    // TODO: Run commands here
-                    // FIXME: For now, this just ignores IO redirection
-                    if (strcmp(newArgv[argCount - 1], "&") == 0) {
-                        newArgv[argCount - 1] = NULL;
-                    }
-                    if (execvp(newArgv[0], newArgv) < 0) {
-                        write(2, "Error: Command not found\n", 25);
-                        fflush(stdout);
-                        free(newArgv);
-                        free(inputBuffer);
-                        exit(1);
-                    }
                 }
+                // Execute command
+                // FIXME: For now, this just ignores IO redirection
+                if (strcmp(newArgv[argCount - 1], "&") == 0) {
+                    newArgv[argCount - 1] = NULL;
+                }
+                close(stdoutFile);
+                if (execvp(newArgv[0], newArgv) < 0) {
+                    fflush(stdout);
+                    write(2, "Error: Command not found\n", 25);
+                    fflush(stderr);
+                    free(newArgv);
+                    free(inputBuffer);
+                    exit(1);
+                }
+                fflush(stdout);
+                exit(0);
             }
             else {
                 if (strcmp(newArgv[argCount - 1], "&") != 0) {
