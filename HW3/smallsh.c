@@ -6,6 +6,10 @@
 #include <assert.h>
 #include <sys/types.h>
 
+// TODO: Add support for redirection
+// TODO: Add support for background processes
+// TODO: Add signal trapping
+
 int* initArr();
 void clearArr(int*);
 void setArr(int*, int);
