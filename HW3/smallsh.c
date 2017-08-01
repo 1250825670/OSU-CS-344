@@ -10,10 +10,15 @@
 // TODO: Add support for background processes
 // TODO: Add signal trapping
 
+// Global variable to keep track of if we are in foreground-only mode
+// set to this type so it can be modified within a signal handler
+volatile sig_atomic_t FOREGROUND_ONLY = 0;
+
 int* initArr();
 void clearArr(int*);
 void setArr(int*, int);
 int findChar(char**, char*, int);
+void catchSIGTSTP(int);
 
 // The following functions are helpers to work with an array that is used to
 // keep track of strings that were allocated dynamically, so that they can be
@@ -54,6 +59,18 @@ int findChar(char** newArgv, char* charToFind, int newArgvSize) {
     return -1;
 }
 
+// Catches SIGTSTP signal and switches foreground-only mode
+void catchSIGTSTP(int signo) {
+    if (FOREGROUND_ONLY == 0) {
+        write(1, "\nEntering foreground-only mode (& is now ignored)\n", 50);
+        FOREGROUND_ONLY = 1;
+    }
+    else if (FOREGROUND_ONLY == 1) {
+        write(1, "\nExiting foreground-only mode\n", 30);
+        FOREGROUND_ONLY = 0;
+    }
+}
+
 int main() {
     char* inputBuffer = NULL;
     size_t bufferSize = 0;
@@ -66,6 +83,13 @@ int main() {
     char exitStatusChar[4];
     int termSignal = -5;
 
+    struct sigaction SIGTSTP_action = {0};
+    memset(&SIGTSTP_action, 0, sizeof(SIGTSTP_action));
+
+    SIGTSTP_action.sa_handler = catchSIGTSTP;
+    sigemptyset(&SIGTSTP_action.sa_mask);
+    SIGTSTP_action.sa_flags = 0;
+
     char *home_var = getenv("HOME");
     int* charsToFree = initArr();
 
@@ -76,13 +100,16 @@ int main() {
             fflush(stdout);
         }
 
-        if (!(charsEntered = getline(&inputBuffer, &bufferSize, stdin))) {
-            // For some reason, it wasn't possible to read the character input
-            // Close out of the shell if this happens
-            fflush(stdout);
-            write(2, "Error: Unable to read character input\n", 38);
-            fflush(stderr);
-            exit(1);
+        // Check for CTRL+Z signal
+        // Will swap between foreground only and background allowed modes
+        sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
+        charsEntered = getline(&inputBuffer, &bufferSize, stdin);
+
+        // If input reading unsuccessful, just prompt for input again
+        // Also triggers if the SIGTSTP_action handler is triggered
+        if (charsEntered == -1) {
+            continue;
         }
 
         if (charsEntered > 2048) {
@@ -106,8 +133,7 @@ int main() {
         char ** newArgv = NULL;
         int argCount = 0;
 
-        while ((token = strtok_r(restOfInput, " ", &restOfInput)))
-        {
+        while ((token = strtok_r(restOfInput, " ", &restOfInput))) {
             // For each new argument, reallocate memory in our array
             argCount++;
             newArgv = realloc(newArgv, sizeof(char*) * argCount);
@@ -249,6 +275,11 @@ int main() {
                 backgroundProcess = 1;
                 newArgv[argCount - 1] = NULL;
                 argCount--;
+            }
+
+            // If we are in foreground-only mode, override & command
+            if (FOREGROUND_ONLY == 1) {
+                backgroundProcess = 0;
             }
 
             if (!(stdinRedir == -1 && stdoutRedir == -1)) {
