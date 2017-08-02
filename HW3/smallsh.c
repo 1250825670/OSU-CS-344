@@ -7,20 +7,110 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
-// TODO: Add support for background processes
-// TODO: Add signal trapping
 // FIXME: When a foreground command takes a while, and there is buffered keyboard input,
 // multiple prompts are printed
+// FIXME: If a background command is given, and then a command is input on foreground,
+// the shell will block. This is due to the SIGCHLD handler getting ignored
+// TODO: Consider changing background process SIGCHLD trap to a check at the start of the while
+// loop to see if any of the processes have terminated
 
 // Global variable to keep track of if we are in foreground-only mode
 // set to this type so it can be modified within a signal handler
 volatile sig_atomic_t FOREGROUND_ONLY = 0;
 
+struct background_children {
+    int *children_pids;
+    int n;
+};
+struct background_children* childProcesses;
+
+struct background_children* initBGChildren();
+void clearChildren(struct background_children*);
+void addChild(struct background_children*, int);
+void removeChild(struct background_children*, int);
+int childrenLeft(struct background_children*);
+int getLastChild(struct background_children*);
+void popLastChild(struct background_children*);
+int pidInChildren(struct background_children*, pid_t);
 int* initArr();
 void clearArr(int*);
 void setArr(int*, int);
 int findChar(char**, char*, int);
 void catchSIGTSTP(int);
+
+struct background_children* initBGChildren() {
+    // Maximum of 10 children
+    // Using last index as a garbage can
+    int* arr = malloc(sizeof(int) * 11);
+    struct background_children* childrenStruct = malloc(sizeof(struct background_children));
+    childrenStruct->children_pids = arr;
+    childrenStruct->n = 0;
+    return childrenStruct;
+}
+
+void clearChildren(struct background_children* children) {
+    free(children->children_pids);
+    free(children);
+    return;
+}
+
+void addChild(struct background_children* children, int child_pid) {
+    if (children->n < 10) {
+        children->children_pids[children->n] = child_pid;
+        children->n++;
+    }
+    return;
+}
+
+void removeChild(struct background_children* children, int child_pid) {
+    if (children->n == 0) {
+        return;
+    }
+
+    int i;
+    int found = 0;
+    for (i = 0; i < children->n; i++) {
+        if (children->children_pids[i] == child_pid) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (found == 1) {
+        children->children_pids[10] = children->children_pids[i];
+        int j;
+        for (j = i; j < children->n; j++) {
+            children->children_pids[j] = children->children_pids[j + 1];
+        }
+        children->n--;
+    }
+}
+
+int childrenLeft(struct background_children* children) {
+    return children->n;
+}
+
+int getLastChild(struct background_children* children) {
+    return children->children_pids[children->n];
+}
+
+void popLastChild(struct background_children* children) {
+    children->n--;
+}
+
+int pidInChildren(struct background_children* children, pid_t pidToCheck) {
+    if (children->n == 0) {
+        return 0;
+    }
+
+    int i;
+    for (i = 0; i < children->n; i++) {
+        if (children->children_pids[i] == (int)pidToCheck) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 // The following functions are helpers to work with an array that is used to
 // keep track of strings that were allocated dynamically, so that they can be
@@ -64,14 +154,71 @@ int findChar(char** newArgv, char* charToFind, int newArgvSize) {
 // Catches SIGTSTP signal and switches foreground-only mode
 void catchSIGTSTP(int signo) {
     if (FOREGROUND_ONLY == 0) {
-        write(1, "\nEntering foreground-only mode (& is now ignored)\n", 50);
+        write(1, "\nEntering foreground-only mode (& is now ignored)\n: ", 52);
         fflush(stdout);
         FOREGROUND_ONLY = 1;
     }
     else if (FOREGROUND_ONLY == 1) {
-        write(1, "\nExiting foreground-only mode\n", 30);
+        write(1, "\nExiting foreground-only mode\n: ", 32);
         fflush(stdout);
         FOREGROUND_ONLY = 0;
+    }
+}
+
+void childTerminated(int signo) {
+    int childExitMethod;
+    pid_t childEndedPID = waitpid(0, &childExitMethod, 0);
+    if (pidInChildren(childProcesses, childEndedPID) == 1 && WIFEXITED(childExitMethod) != 0) {
+        // Background process ended normally - print exit value
+        int exitStatus = WEXITSTATUS(childExitMethod);
+        write(1, "\nbackground pid ", 16);
+        fflush(stdout);
+
+        char curPidChar[10];
+        memset(curPidChar, '\0', sizeof(curPidChar));
+        snprintf(curPidChar, 10, "%d", (int)childEndedPID);
+
+        write(1, curPidChar, 10);
+        fflush(stdout);
+        write(1, " is done: exit value ", 21);
+        fflush(stdout);
+
+        char exitStatusChar[5];
+        memset(exitStatusChar, '\0', sizeof(exitStatusChar));
+        snprintf(exitStatusChar, 5, "%d", exitStatus);
+
+        write(1, exitStatusChar, 5);
+        fflush(stdout);
+        write(1, "\n: ", 3);
+        fflush(stdout);
+
+        // Remove the process that was just terminated from our children ADT
+        removeChild(childProcesses, (int)childEndedPID);
+    }
+    else if (pidInChildren(childProcesses, childEndedPID) == 1 && WIFSIGNALED(childExitMethod) != 0) {
+        // Background process was terminated by a signal
+        int termSig = WTERMSIG(childExitMethod);
+        write(1, "\nbackground pid ", 16);
+        fflush(stdout);
+
+        char curPidChar[10];
+        memset(curPidChar, '\0', sizeof(curPidChar));
+        snprintf(curPidChar, 10, "%d", (int)childEndedPID);
+
+        write(1, curPidChar, 10);
+        fflush(stdout);
+
+        write(1, " is done: terminated by signal ", 31);
+        fflush(stdout);
+
+        char termSigChar[5];
+        memset(termSigChar, '\0', sizeof(termSigChar));
+        snprintf(termSigChar, 5, "%d", termSig);
+
+        write(1, termSigChar, 5);
+        fflush(stdout);
+        write(1, "\n", 1);
+        fflush(stdout);
     }
 }
 
@@ -81,7 +228,9 @@ int main() {
     pid_t childPid = -5;
     int exitStatus = 0;
     char exitStatusChar[4];
-    int termSignal = -5;
+    int i;
+
+    childProcesses = initBGChildren();
 
     // Signal handler for CTRL+Z
     // Toggles foreground-only mode
@@ -98,8 +247,16 @@ int main() {
     memset(&ignore_SIGINT, 0, sizeof(ignore_SIGINT));
 
     ignore_SIGINT.sa_handler = SIG_IGN;
-    sigemptyset(&ignore_SIGINT.sa_mask);
-    ignore_SIGINT.sa_flags = 0;
+    sigfillset(&ignore_SIGINT.sa_mask);
+    ignore_SIGINT.sa_flags = SA_RESTART;
+
+    // Signal handler for child ended
+    struct sigaction SIGCHLD_ended = {0};
+    memset(&SIGCHLD_ended, 0, sizeof(SIGCHLD_ended));
+
+    SIGCHLD_ended.sa_handler = childTerminated;
+    sigfillset(&SIGCHLD_ended.sa_mask);
+    SIGCHLD_ended.sa_flags = SA_RESTART;
 
     char *home_var = getenv("HOME");
     int* charsToFree = initArr();
@@ -108,14 +265,15 @@ int main() {
     // Will swap between foreground only and background allowed modes
     sigaction(SIGTSTP, &SIGTSTP_action, NULL);
 
+    // Checks to see if any child proceses have ended
+    // sigaction(SIGCHLD, &SIGCHLD_ended, NULL);
+
+    sigaction(SIGINT, &ignore_SIGINT, NULL);
+
     while (1) {
         char* inputBuffer = NULL;
         size_t bufferSize = 0;
         int charsEntered = 0;
-        // TODO: Check to see if any background processes have completed
-
-        // TODO: Register CTRL+C handler to ignore
-        // sigaction(SIGINT, &ignore_SIGINT, NULL);
 
         // Writes prompt to screen
         if (childPid != 0) {
@@ -224,7 +382,6 @@ int main() {
         char* startOfExpand;
         char* newStr;
 
-        int i;
         for (i = 0; i < argCount; i++) {
             startOfExpand = strstr(newArgv[i], "$$");
             if (startOfExpand != NULL) {
@@ -263,7 +420,12 @@ int main() {
             bufferSize = 0;
             free(inputBuffer);
             inputBuffer = NULL;
+
+            // Clear children struct
+            clearChildren(childProcesses);
+
             // FIXME: Still need to kill off any remaining child processes
+            
             exit(0);
         }
 
@@ -336,9 +498,19 @@ int main() {
                         fflush(stdout);
                         write(2, "Error: Invalid stdin redirection\n", 33);
                         fflush(stderr);
+
+                        for (i = 0; i < 512; i++) {
+                            if (charsToFree[i] == 1) {
+                                free(newArgv[i]);
+                            }
+                        }
+                        clearArr(charsToFree);
+
                         free(newArgv);
+                        bufferSize = 0;
                         free(inputBuffer);
-                        exit(1);
+                        inputBuffer = NULL;
+                        continue;
                     }
 
                     // Open stdin file for read
@@ -349,9 +521,19 @@ int main() {
                         fflush(stdout);
                         write(2, "Error: Cannot open file for stdin redirection\n", 46);
                         fflush(stderr);
+
+                        for (i = 0; i < 512; i++) {
+                            if (charsToFree[i] == 1) {
+                                free(newArgv[i]);
+                            }
+                        }
+                        clearArr(charsToFree);
+
                         free(newArgv);
+                        bufferSize = 0;
                         free(inputBuffer);
-                        exit(1);
+                        inputBuffer = NULL;
+                        continue;
                     }
 
                     // When executing commands, don't want the redirection
@@ -367,9 +549,18 @@ int main() {
                         fflush(stdout);
                         write(2, "Error: Invalid stdout redirection\n", 34);
                         fflush(stderr);
+                        for (i = 0; i < 512; i++) {
+                            if (charsToFree[i] == 1) {
+                                free(newArgv[i]);
+                            }
+                        }
+                        clearArr(charsToFree);
+
                         free(newArgv);
+                        bufferSize = 0;
                         free(inputBuffer);
-                        exit(1);
+                        inputBuffer = NULL;
+                        continue;
                     }
 
                     // Open stdout file for writing
@@ -380,9 +571,18 @@ int main() {
                         fflush(stdout);
                         write(2, "Error: Cannot open file for stdout redirection\n", 47);
                         fflush(stderr);
+                        for (i = 0; i < 512; i++) {
+                            if (charsToFree[i] == 1) {
+                                free(newArgv[i]);
+                            }
+                        }
+                        clearArr(charsToFree);
+
                         free(newArgv);
+                        bufferSize = 0;
                         free(inputBuffer);
-                        exit(1);
+                        inputBuffer = NULL;
+                        continue;
                     }
 
                     // When executing commands, don't want the redirection
@@ -397,11 +597,14 @@ int main() {
 
             // Execute this command if we are in the child process
             if (childPid == 0) {
-                // TODO: Add CTRL+C handler to have this child process terminate
-                // for foreground processes
+                struct sigaction terminate_FG = {0};
+                memset(&terminate_FG, 0, sizeof(terminate_FG));
 
-                // TODO: Change stdio redirection for if this is a background
-                // process
+                terminate_FG.sa_handler = SIG_DFL;
+                sigemptyset(&terminate_FG.sa_mask);
+                terminate_FG.sa_flags = 0;
+
+                sigaction(SIGINT, &terminate_FG, NULL);
 
                 // Redirects stdin to the open file
                 if (stdinFile != 0) {
@@ -438,6 +641,18 @@ int main() {
                     close(stdoutFile);
                 }
 
+                if (backgroundProcess == 1 && stdinFile == 0) {
+                    int devNull = open("/dev/null", O_RDONLY);
+                    dup2(devNull, 0);
+                    close(devNull);
+                }
+
+                if (backgroundProcess == 1 && stdoutFile == 0) {
+                    int devNull = open("/dev/null", O_WRONLY);
+                    dup2(devNull, 1);
+                    close(devNull);
+                }
+
                 // Execute the command
                 if (execvp(newArgv[0], newArgv) < 0) {
                     // Throw an error if the command did not work
@@ -469,12 +684,39 @@ int main() {
                         exitStatus = WEXITSTATUS(childExitMethod);
                     }
 
-                    else if (WIFSIGNALED(childExitMethod) != 0) {
-                        termSignal = WTERMSIG(childExitMethod);
+                    if (WIFSIGNALED(childExitMethod) != 0) {
+                        int termSig = WTERMSIG(childExitMethod);
+                        
+                        write(1, "terminated by signal ", 21);
+                        fflush(stdout);
+
+                        char termSigChar[5];
+                        memset(termSigChar, '\0', sizeof(termSigChar));
+                        snprintf(termSigChar, 5, "%d", termSig);
+                        fflush(stdout);
+
+                        write(1, termSigChar, 5);
+                        fflush(stdout);
+                        write(1, "\n", 1);
+                        fflush(stdout);
+                        
+                        exitStatus = 1;
                     }
                 }
                 else if (backgroundProcess == 1) {
                     // Run in background
+                    char childPidChar[10];
+                    memset(childPidChar, '\0', sizeof(childPidChar));
+                    snprintf(childPidChar, 10, "%d", childPid);
+                    write(1, "background pid is ", 18);
+                    fflush(stdout);
+                    write(1, childPidChar, 10);
+                    fflush(stdout);
+                    write(1, "\n", 1);
+                    fflush(stdout);
+
+                    // Add child process to list of background processes
+                    addChild(childProcesses, childPid);
                 }
             }
         }
@@ -492,6 +734,5 @@ int main() {
         bufferSize = 0;
         free(inputBuffer);
         inputBuffer = NULL;
-        fflush(stdout);
     }
 }
