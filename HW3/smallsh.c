@@ -9,6 +9,8 @@
 
 // TODO: Add support for background processes
 // TODO: Add signal trapping
+// FIXME: When a foreground command takes a while, and there is buffered keyboard input,
+// multiple prompts are printed
 
 // Global variable to keep track of if we are in foreground-only mode
 // set to this type so it can be modified within a signal handler
@@ -63,19 +65,17 @@ int findChar(char** newArgv, char* charToFind, int newArgvSize) {
 void catchSIGTSTP(int signo) {
     if (FOREGROUND_ONLY == 0) {
         write(1, "\nEntering foreground-only mode (& is now ignored)\n", 50);
+        fflush(stdout);
         FOREGROUND_ONLY = 1;
     }
     else if (FOREGROUND_ONLY == 1) {
         write(1, "\nExiting foreground-only mode\n", 30);
+        fflush(stdout);
         FOREGROUND_ONLY = 0;
     }
 }
 
 int main() {
-    char* inputBuffer = NULL;
-    size_t bufferSize = 0;
-    int charsEntered = 0;
-    char current_dir[100];
     int childExitMethod = -5;
     pid_t curPid;
     pid_t childPid = -5;
@@ -83,34 +83,47 @@ int main() {
     char exitStatusChar[4];
     int termSignal = -5;
 
+    // Signal handler for CTRL+Z
+    // Toggles foreground-only mode
     struct sigaction SIGTSTP_action = {0};
     memset(&SIGTSTP_action, 0, sizeof(SIGTSTP_action));
 
     SIGTSTP_action.sa_handler = catchSIGTSTP;
     sigemptyset(&SIGTSTP_action.sa_mask);
-    SIGTSTP_action.sa_flags = 0;
+    SIGTSTP_action.sa_flags = SA_RESTART;
+
+    // Signal handler for CTRL+C in the shell
+    // Ignores the SIGINT signal
+    struct sigaction ignore_SIGINT = {0};
+    memset(&ignore_SIGINT, 0, sizeof(ignore_SIGINT));
+
+    ignore_SIGINT.sa_handler = SIG_IGN;
+    sigemptyset(&ignore_SIGINT.sa_mask);
+    ignore_SIGINT.sa_flags = 0;
 
     char *home_var = getenv("HOME");
     int* charsToFree = initArr();
 
+    // Check for CTRL+Z signal
+    // Will swap between foreground only and background allowed modes
+    sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
     while (1) {
+        char* inputBuffer = NULL;
+        size_t bufferSize = 0;
+        int charsEntered = 0;
+        // TODO: Check to see if any background processes have completed
+
+        // TODO: Register CTRL+C handler to ignore
+        // sigaction(SIGINT, &ignore_SIGINT, NULL);
+
         // Writes prompt to screen
         if (childPid != 0) {
             write(1, ": ", 2);
             fflush(stdout);
         }
 
-        // Check for CTRL+Z signal
-        // Will swap between foreground only and background allowed modes
-        sigaction(SIGTSTP, &SIGTSTP_action, NULL);
-
         charsEntered = getline(&inputBuffer, &bufferSize, stdin);
-
-        // If input reading unsuccessful, just prompt for input again
-        // Also triggers if the SIGTSTP_action handler is triggered
-        if (charsEntered == -1) {
-            continue;
-        }
 
         if (charsEntered > 2048) {
             // If command is more than 2048 characters, prompt for next input
@@ -121,6 +134,15 @@ int main() {
 
             bufferSize = 0;
             free(inputBuffer);
+            continue;
+        }
+
+        // If input reading unsuccessful, just prompt for input again
+        // Also triggers if the SIGTSTP_action handler is triggered
+        if (charsEntered < 1) {
+            bufferSize = 0;
+            free(inputBuffer);
+            inputBuffer = NULL;
             continue;
         }
 
@@ -157,6 +179,42 @@ int main() {
             continue;
         }
 
+        // Get prompt for next command if no arguments detected
+        if (argCount <= 0) {
+            free(newArgv);
+            bufferSize = 0;
+            free(inputBuffer);
+            inputBuffer = NULL;
+            continue;
+        }
+
+        if (charsEntered == 0) {
+            // Do nothing
+            free(newArgv);
+            bufferSize = 0;
+            free(inputBuffer);
+            inputBuffer = NULL;
+            continue;
+        }
+
+        if (*inputBuffer == '#') {
+            // Do nothing - this line is a comment
+            free(newArgv);
+            bufferSize = 0;
+            free(inputBuffer);
+            inputBuffer = NULL;
+            continue;
+        }
+
+        if (*inputBuffer == '\n' && argCount == 1) {
+            // Do nothing - user didn't enter anything
+            free(newArgv);
+            bufferSize = 0;
+            free(inputBuffer);
+            inputBuffer = NULL;
+            continue;
+        }
+
         // Expand out any instance of $$ to the current PID
         curPid = getpid();
         char curPidChar[10];
@@ -190,19 +248,7 @@ int main() {
         assert(newArgv != 0);
         newArgv[argCount] = NULL;
 
-        if (charsEntered == 0) {
-            // Do nothing
-        }
-
-        else if (*inputBuffer == '#') {
-            // Do nothing - this line is a comment
-        }
-
-        else if (*inputBuffer == '\n' && argCount == 1) {
-            // Do nothing - user didn't enter anything
-        }
-
-        else if (strcmp(inputBuffer, "exit") == 0) {
+        if (strcmp(inputBuffer, "exit") == 0) {
             // Allocated memory for some strings in argv if $$ expansion
             // was required. Need to free this memory
             for (i = 0; i < 512; i++) {
@@ -351,6 +397,12 @@ int main() {
 
             // Execute this command if we are in the child process
             if (childPid == 0) {
+                // TODO: Add CTRL+C handler to have this child process terminate
+                // for foreground processes
+
+                // TODO: Change stdio redirection for if this is a background
+                // process
+
                 // Redirects stdin to the open file
                 if (stdinFile != 0) {
                     if (dup2(stdinFile, 0) < 0) {
@@ -440,5 +492,6 @@ int main() {
         bufferSize = 0;
         free(inputBuffer);
         inputBuffer = NULL;
+        fflush(stdout);
     }
 }
