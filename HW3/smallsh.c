@@ -7,9 +7,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
-// FIXME: When a foreground command takes a while, and there is buffered keyboard input,
-// multiple prompts are printed
-
 // Global variable to keep track of if we are in foreground-only mode
 // set to this type so it can be modified within a signal handler
 volatile sig_atomic_t FOREGROUND_ONLY = 0;
@@ -19,14 +16,11 @@ struct background_children {
     int n;
 };
 struct background_children* childProcesses;
-struct background_children* terminatedProcesses;
 
 struct background_children* initBGChildren();
 void clearChildren(struct background_children*);
 void addChild(struct background_children*, int);
 void removeChild(struct background_children*, int);
-void terminateProcess(struct background_children*,
-        struct background_children*, int);
 int childrenLeft(struct background_children*);
 int getLastChild(struct background_children*);
 void popLastChild(struct background_children*);
@@ -37,23 +31,31 @@ void setArr(int*, int);
 int findChar(char**, char*, int);
 void catchSIGTSTP(int);
 
+// Initializes a background_children struct
+// Allocates space for 11 integers in children_pids array and sets
+// n to 0
 struct background_children* initBGChildren() {
     // Maximum of 10 children
     // Using last index as a garbage can
     int* arr = malloc(sizeof(int) * 11);
     struct background_children* childrenStruct = malloc(sizeof(struct background_children));
     childrenStruct->children_pids = arr;
+
+    // n attribute represents the number of children in the children_pids array
     childrenStruct->n = 0;
     return childrenStruct;
 }
 
+// Frees memory allocated for struct
 void clearChildren(struct background_children* children) {
     free(children->children_pids);
     free(children);
     return;
 }
 
+// Adds the given pid to the children_pids array
 void addChild(struct background_children* children, int child_pid) {
+    // Only adds new value if there is space left in the array
     if (children->n < 10) {
         children->children_pids[children->n] = child_pid;
         children->n++;
@@ -61,11 +63,13 @@ void addChild(struct background_children* children, int child_pid) {
     return;
 }
 
+// Removes the given pid from the children_pids array
 void removeChild(struct background_children* children, int child_pid) {
     if (children->n == 0) {
         return;
     }
 
+    // Find the index of the array in which the pid canbe found
     int i;
     int found = 0;
     for (i = 0; i < children->n; i++) {
@@ -75,6 +79,8 @@ void removeChild(struct background_children* children, int child_pid) {
         }
     }
 
+    // Remove the given pid from the children_pids array, and shift following
+    // elements up
     if (found == 1) {
         children->children_pids[10] = children->children_pids[i];
         int j;
@@ -85,28 +91,22 @@ void removeChild(struct background_children* children, int child_pid) {
     }
 }
 
-void terminateProcess(struct background_children* background_processes, 
-        struct background_children* terminated_processes,
-        int pidToTerminate) {
-    if (pidInChildren(background_processes, (pid_t)pidToTerminate) == 1 &&
-            pidInChildren(terminated_processes, (pid_t)pidToTerminate) == 0) {
-        removeChild(background_processes, pidToTerminate);
-        addChild(terminated_processes, pidToTerminate);
-    }
-}
-
+// Returns the number of children left
 int childrenLeft(struct background_children* children) {
     return children->n;
 }
 
+// Gets the value of the last child's pid
 int getLastChild(struct background_children* children) {
     return children->children_pids[children->n];
 }
 
+// Removes the last child's pid
 void popLastChild(struct background_children* children) {
     children->n--;
 }
 
+// Returns 1 if the given pid is in children_pids, 0 if not
 int pidInChildren(struct background_children* children, pid_t pidToCheck) {
     if (children->n == 0) {
         return 0;
@@ -160,7 +160,7 @@ int findChar(char** newArgv, char* charToFind, int newArgvSize) {
     return -1;
 }
 
-// Catches SIGTSTP signal and switches foreground-only mode
+// Catches SIGTSTP signal and switches foreground-only mode on and off
 void catchSIGTSTP(int signo) {
     if (FOREGROUND_ONLY == 0) {
         write(1, "\nEntering foreground-only mode (& is now ignored)\n: ", 52);
@@ -174,80 +174,28 @@ void catchSIGTSTP(int signo) {
     }
 }
 
-void childTerminated(int signo) {
-    int childExitMethod;
-    // FIXME: This wait results in the foreground process getting blocked if a fg process is run
-    // while a background process is in progress
-    pid_t childEndedPID = waitpid(0, &childExitMethod, 0);
-    if (pidInChildren(childProcesses, childEndedPID) == 1 && WIFEXITED(childExitMethod) != 0) {
-        // Background process ended normally - print exit value
-        int exitStatus = WEXITSTATUS(childExitMethod);
-        write(1, "\nbackground pid ", 16);
-        fflush(stdout);
-
-        char curPidChar[10];
-        memset(curPidChar, '\0', sizeof(curPidChar));
-        snprintf(curPidChar, 10, "%d", (int)childEndedPID);
-
-        write(1, curPidChar, 10);
-        fflush(stdout);
-        write(1, " is done: exit value ", 21);
-        fflush(stdout);
-
-        char exitStatusChar[5];
-        memset(exitStatusChar, '\0', sizeof(exitStatusChar));
-        snprintf(exitStatusChar, 5, "%d", exitStatus);
-
-        write(1, exitStatusChar, 5);
-        fflush(stdout);
-        write(1, "\n: ", 3);
-        fflush(stdout);
-
-        // Remove the process that was just terminated from our children ADT
-        removeChild(childProcesses, (int)childEndedPID);
-    }
-    else if (pidInChildren(childProcesses, childEndedPID) == 1 && WIFSIGNALED(childExitMethod) != 0) {
-        // Background process was terminated by a signal
-        int termSig = WTERMSIG(childExitMethod);
-        write(1, "\nbackground pid ", 16);
-        fflush(stdout);
-
-        char curPidChar[10];
-        memset(curPidChar, '\0', sizeof(curPidChar));
-        snprintf(curPidChar, 10, "%d", (int)childEndedPID);
-
-        write(1, curPidChar, 10);
-        fflush(stdout);
-
-        write(1, " is done: terminated by signal ", 31);
-        fflush(stdout);
-
-        char termSigChar[5];
-        memset(termSigChar, '\0', sizeof(termSigChar));
-        snprintf(termSigChar, 5, "%d", termSig);
-
-        write(1, termSigChar, 5);
-        fflush(stdout);
-        write(1, "\n", 1);
-        fflush(stdout);
-    }
-}
-
+// Check all background processes to see if they have terminated
 void checkBackgroundProcesses(struct background_children* bgProcesses) {
     int childExitMethod;
     int i;
+
+    // Loops through all stored background process PIDs stored in struct
     for (i = 0; i < bgProcesses->n; i++) {
         pid_t childEndedPID = waitpid(bgProcesses->children_pids[i],
                 &childExitMethod, WNOHANG);
+        
+        // waitpid returns 0 if the given process has not completed
         if (childEndedPID == 0) {
             return;
         }
+
         if (WIFEXITED(childExitMethod) != 0) {
             // Background process ended normally - print exit value
             int exitStatus = WEXITSTATUS(childExitMethod);
             write(1, "\nbackground pid ", 16);
             fflush(stdout);
 
+            // Converts the PID to char for printing
             char curPidChar[10];
             memset(curPidChar, '\0', sizeof(curPidChar));
             snprintf(curPidChar, 10, "%d", (int)childEndedPID);
@@ -263,7 +211,7 @@ void checkBackgroundProcesses(struct background_children* bgProcesses) {
 
             write(1, exitStatusChar, 5);
             fflush(stdout);
-            write(1, "\n: ", 3);
+            write(1, "\n", 1);
             fflush(stdout);
 
             // Remove the process that was just terminated from our children ADT
@@ -275,6 +223,7 @@ void checkBackgroundProcesses(struct background_children* bgProcesses) {
             write(1, "\nbackground pid ", 16);
             fflush(stdout);
 
+            // Converts the PID to char for printing
             char curPidChar[10];
             memset(curPidChar, '\0', sizeof(curPidChar));
             snprintf(curPidChar, 10, "%d", (int)childEndedPID);
@@ -293,7 +242,8 @@ void checkBackgroundProcesses(struct background_children* bgProcesses) {
             fflush(stdout);
             write(1, "\n", 1);
             fflush(stdout);
-
+            
+            // Remove the process that was just terminated from our children ADT
             removeChild(bgProcesses, (int)childEndedPID);
         }
     }
@@ -307,52 +257,39 @@ int main() {
     char exitStatusChar[4];
     int i;
 
+    int* charsToFree = initArr();
+    char *home_var = getenv("HOME");
     childProcesses = initBGChildren();
-    terminatedProcesses = initBGChildren();
 
     // Signal handler for CTRL+Z
     // Toggles foreground-only mode
     struct sigaction SIGTSTP_action = {0};
     memset(&SIGTSTP_action, 0, sizeof(SIGTSTP_action));
-
     SIGTSTP_action.sa_handler = catchSIGTSTP;
     sigemptyset(&SIGTSTP_action.sa_mask);
     SIGTSTP_action.sa_flags = SA_RESTART;
 
     // Signal handler for CTRL+C in the shell
-    // Ignores the SIGINT signal
     struct sigaction ignore_SIGINT = {0};
     memset(&ignore_SIGINT, 0, sizeof(ignore_SIGINT));
-
     ignore_SIGINT.sa_handler = SIG_IGN;
     sigfillset(&ignore_SIGINT.sa_mask);
     sigdelset(&ignore_SIGINT.sa_mask, SIGCHLD);
     ignore_SIGINT.sa_flags = SA_RESTART;
 
-    // Signal handler for child ended
-    struct sigaction SIGCHLD_ended = {0};
-    memset(&SIGCHLD_ended, 0, sizeof(SIGCHLD_ended));
-
-    SIGCHLD_ended.sa_handler = childTerminated;
-    sigfillset(&SIGCHLD_ended.sa_mask);
-    SIGCHLD_ended.sa_flags = SA_RESTART;
-
-    char *home_var = getenv("HOME");
-    int* charsToFree = initArr();
-
     // Check for CTRL+Z signal
     // Will swap between foreground only and background allowed modes
     sigaction(SIGTSTP, &SIGTSTP_action, NULL);
-
-    // Checks to see if any child proceses have ended
-//    sigaction(SIGCHLD, &SIGCHLD_ended, NULL);
 
     while (1) {
         char* inputBuffer = NULL;
         size_t bufferSize = 0;
         int charsEntered = 0;
 
+        // Ignores SIGINT signal in the shell
         sigaction(SIGINT, &ignore_SIGINT, NULL);
+
+        // Before prompt, check for completion of background processes
         checkBackgroundProcesses(childProcesses);
 
         // Writes prompt to screen
@@ -361,6 +298,7 @@ int main() {
             fflush(stdout);
         }
 
+        // Prompts user for input
         charsEntered = getline(&inputBuffer, &bufferSize, stdin);
 
         if (charsEntered > 2048) {
@@ -376,23 +314,26 @@ int main() {
         }
 
         // If input reading unsuccessful, just prompt for input again
-        // Also triggers if the SIGTSTP_action handler is triggered
         if (charsEntered < 1) {
             bufferSize = 0;
             free(inputBuffer);
             inputBuffer = NULL;
+            write(1, "\n", 1);
             continue;
         }
 
+        // Replaces last character of inputBuffer with null terminator instead
+        // of newline
         inputBuffer[charsEntered - 1] = '\0';
 
         // Need to parse input into an array, delimited by spaces
         char *token;
         char *restOfInput = inputBuffer;
-
         char ** newArgv = NULL;
         int argCount = 0;
 
+        // Splits up every argument in input and stores in newArgv array
+        // Parses the argument on whitespaces
         while ((token = strtok_r(restOfInput, " ", &restOfInput))) {
             // For each new argument, reallocate memory in our array
             argCount++;
@@ -462,6 +403,7 @@ int main() {
         char* startOfExpand;
         char* newStr;
 
+        // Checks the arguments to see if any argument contains $$
         for (i = 0; i < argCount; i++) {
             startOfExpand = strstr(newArgv[i], "$$");
             if (startOfExpand != NULL) {
@@ -480,7 +422,7 @@ int main() {
             }
         }
 
-        // Add NULL to the argv array, as execv and execvp commands expect this
+        // Add NULL to the argv array, as execvp command expects this
         newArgv = realloc(newArgv, sizeof(char*) * (argCount + 1));
         assert(newArgv != 0);
         newArgv[argCount] = NULL;
@@ -532,6 +474,7 @@ int main() {
             }
         }
 
+        // Status builtin command
         else if (strcmp(inputBuffer, "status") == 0 && argCount == 1) {
             // Converts exit status to char
             memset(exitStatusChar, '\0', sizeof(exitStatusChar));
@@ -546,6 +489,7 @@ int main() {
             fflush(stdout);
         }
 
+        // If the command is not a builtin, need to fork and exec
         else {
             // Will return -1 if the redirect operators are not found
             // Otherwise, returns the index where they are found in argv
@@ -678,6 +622,8 @@ int main() {
             // Execute this command if we are in the child process
             if (childPid == 0) {
                 if (backgroundProcess == 0) {
+                // If this is a foreground process, SIGINT should terminate
+                // this process
                     struct sigaction terminate_FG = {0};
                     memset(&terminate_FG, 0, sizeof(terminate_FG));
 
@@ -688,6 +634,7 @@ int main() {
                     sigaction(SIGINT, &terminate_FG, NULL);
                 }
                 if (backgroundProcess == 1) {
+                    // If this is a background process, ignore SIGINT
                     sigaction(SIGINT, &ignore_SIGINT, NULL);
                 }
                 // Redirects stdin to the open file
@@ -770,6 +717,7 @@ int main() {
                         exitStatus = WEXITSTATUS(childExitMethod);
                     }
 
+                    // If the process was killed by signal, print the signal
                     if (WIFSIGNALED(childExitMethod) != 0) {
                         int termSig = WTERMSIG(childExitMethod);
                         
@@ -791,6 +739,8 @@ int main() {
                 }
                 else if (backgroundProcess == 1) {
                     // Add child process to list of background processes
+                    // Will check for completion of background processes prior
+                    // to returning prompt to user
                     addChild(childProcesses, childPid);
                     
                     // Run in background
