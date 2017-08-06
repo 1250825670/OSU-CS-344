@@ -1,3 +1,6 @@
+// CS-344 HW3
+// Programmer: Charles Chen
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -30,6 +33,7 @@ void clearArr(int*);
 void setArr(int*, int);
 int findChar(char**, char*, int);
 void catchSIGTSTP(int);
+void checkBackgroundProcesses(struct background_children*);
 
 // Initializes a background_children struct
 // Allocates space for 11 integers in children_pids array and sets
@@ -98,7 +102,7 @@ int childrenLeft(struct background_children* children) {
 
 // Gets the value of the last child's pid
 int getLastChild(struct background_children* children) {
-    return children->children_pids[children->n];
+    return children->children_pids[children->n-1];
 }
 
 // Removes the last child's pid
@@ -192,7 +196,7 @@ void checkBackgroundProcesses(struct background_children* bgProcesses) {
         if (WIFEXITED(childExitMethod) != 0) {
             // Background process ended normally - print exit value
             int exitStatus = WEXITSTATUS(childExitMethod);
-            write(1, "\nbackground pid ", 16);
+            write(1, "background pid ", 16);
             fflush(stdout);
 
             // Converts the PID to char for printing
@@ -443,11 +447,16 @@ int main() {
             free(inputBuffer);
             inputBuffer = NULL;
 
+            // Kills off any remaining background processes
+            while (childrenLeft(childProcesses) > 0) {
+                int lastChild = getLastChild(childProcesses);
+                kill((pid_t)lastChild, SIGTERM);
+                popLastChild(childProcesses);
+            }
+
             // Clear children struct
             clearChildren(childProcesses);
 
-            // FIXME: Still need to kill off any remaining child processes
-            
             exit(0);
         }
 
