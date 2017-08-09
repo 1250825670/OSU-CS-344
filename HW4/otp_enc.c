@@ -10,8 +10,6 @@
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 
-// TODO: Add a check for the server type that the socket opens on
-
 // Prints a usage statement
 void print_usage() {
     printf("Usage:\notp_enc plaintext key port\n");
@@ -81,6 +79,8 @@ int main(int argc, char *argv[])
 	if (keyBufferEntered < plaintextBufferEntered) {
 		fprintf(stderr, "Error: key '%s' is too short\n", argv[2]);
 		fflush(stdout);
+		free(plaintextBuffer);
+		free(keyBuffer);
 		exit(1);
 	}
 
@@ -89,11 +89,11 @@ int main(int argc, char *argv[])
 		if ( !(plaintextBuffer[i] >= 65 && plaintextBuffer[i] <= 90) && plaintextBuffer[i] != 32 ) {
 			fprintf(stderr, "%s", "\nError: input contains bad characters\n");
 			fflush(stdout);
+			free(plaintextBuffer);
+			free(keyBuffer);
 			exit(1);
 		}
 	}
-
-	// TODO: Remove trailing newline from plaintext and keybuffer before outputting
 
 	int socketFD, portNumber;
 	struct sockaddr_in serverAddress;
@@ -114,61 +114,96 @@ int main(int argc, char *argv[])
 	if (socketFD < 0) error("CLIENT: ERROR opening socket in otp_enc");
 	
 	// Connect to server
-	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
-		error("CLIENT: ERROR connecting otp_enc socket");
+	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
+		fprintf(stderr, "Error: could not contact otp_enc_d on port %d\n", portNumber);
+		free(plaintextBuffer);
+		free(keyBuffer);
+		exit(2);
+	}
 	
-	// TODO: Receive from server first
-	// Receive the type of server - encrypt or decrypt
+	// First check that the client connected to the correct daemon
+	char daemonType[2];
+	memset(daemonType, '\0', sizeof(daemonType));
+	charsRead = recv(socketFD, daemonType, 2, 0);
+	if (charsRead < 0) {
+		fprintf(stderr, "%s", "Error: unable to read from socket");
+		free(plaintextBuffer);
+		free(keyBuffer);
+		exit(1);
+	}
 
-	// Get input message from user
-	/*
-	printf("CLIENT: Enter text to send to the server, and then hit enter: ");
-	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer array
-	fgets(buffer, sizeof(buffer) - 1, stdin); // Get input from the user, trunc to buffer - 1 chars, leaving \0
-	buffer[strcspn(buffer, "\n")] = '\0'; // Remove the trailing \n that fgets adds
-	*/
+	char clientType[2];
+	clientType[0] = 'e';
+	clientType[1] = '\0';
+	// Also, send the client type to the daemon
+	charsWritten = send(socketFD, clientType, 2, 0);
+	if (charsWritten < 0) {
+		fprintf(stderr, "Error: Unable to write to socket\n");
+		free(plaintextBuffer);
+		free(keyBuffer);
+		exit(1);
+	}
 
-	// Send message to server
-	/*
-	charsWritten = send(socketFD, buffer, strlen(buffer), 0); // Write to the server
-	if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-	if (charsWritten < strlen(buffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
-	*/
+	// If connected to the incorrect daemon, need to exit with error
+	if (strcmp(daemonType, "e") != 0) {
+		fprintf(stderr, "%s", "Error: Attempting to connect decryption daemon\n");
+		free(plaintextBuffer);
+		free(keyBuffer);
+		exit(1);
+	}
 
 	// Removes trailing \n from input text files
 	plaintextBuffer[plaintextBufferEntered - 1] = '\0';
 	keyBuffer[keyBufferEntered - 1] = '\0';
 
-	// Send plaintext to server
-	charsWritten = send(socketFD, plaintextBuffer, strlen(plaintextBuffer), 0);
+	// First, sends a number containing the length of the plaintext buffer
+	char bufferSizeChar[8];
+	memset(bufferSizeChar, '\0', sizeof(bufferSizeChar));
+	snprintf(bufferSizeChar, 8, "%d", plaintextBufferEntered - 1);
+	charsWritten = send(socketFD, bufferSizeChar, 8, 0);
 	if (charsWritten < 0) {
 		fprintf(stderr, "Error: Unable to write to socket\n");
+		free(plaintextBuffer);
+		free(keyBuffer);
 		exit(1);
 	}
 
-	// TODO: Handle this contingency
-	if (charsWritten < strlen(plaintextBuffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
+	// Send plaintext to server
+	charsWritten = send(socketFD, plaintextBuffer, plaintextBufferEntered - 1, 0);
+	if (charsWritten < 0) {
+		fprintf(stderr, "Error: Unable to write to socket\n");
+		free(plaintextBuffer);
+		free(keyBuffer);
+		exit(1);
+	}
+	if (charsWritten < plaintextBufferEntered - 1) printf("CLIENT: WARNING: Not all data written to socket!\n");
 
 	// Send the key to server
-	charsWritten = send(socketFD, keyBuffer, strlen(keyBuffer), 0);
+	// If the key is longer than the plaintext, only enough characters to encrypt the plaintext
+	// will be sent
+	charsWritten = send(socketFD, keyBuffer, plaintextBufferEntered - 1, 0);
 	if (charsWritten < 0) {
 		fprintf(stderr, "Error: Unable to write to socket\n");
+		free(plaintextBuffer);
+		free(keyBuffer);
 		exit(1);
 	}
 
-	// TODO: Handle this contingency
-	if (charsWritten < strlen(keyBuffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
+	if (charsWritten < plaintextBufferEntered - 1) printf("CLIENT: WARNING: Not all data written to socket!\n");
 
-	char encryptedText[256];
+	char encryptedText[plaintextBufferEntered];
 	memset(encryptedText, '\0', sizeof(encryptedText));
-	charsRead = recv(socketFD, encryptedText, 255, 0); // Read the client's message from the socket
+	charsRead = recv(socketFD, encryptedText, plaintextBufferEntered - 1, 0); // Read the client's message from the socket
 	if (charsRead < 0) {
 		fprintf(stderr, "%s", "Error: unable to read from socket");
+		free(plaintextBuffer);
+		free(keyBuffer);
 		exit(1);
 	}
 
 	close(socketFD); // Close the socket
 
+	// Output the encrypted text onto stdout
 	fprintf(stdout, "%s\n", encryptedText);
 
 	free(plaintextBuffer);

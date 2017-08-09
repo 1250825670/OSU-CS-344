@@ -8,9 +8,7 @@
 #include <ctype.h>
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
-// FIXME: How to account for different size data in receiving buffer?
 // TODO: Add support for multiple child processes
-// TODO: Add a check for the client type that the socket opens on
 
 // Prints a usage statement
 void print_usage() {
@@ -20,9 +18,8 @@ void print_usage() {
 	fflush(stdout);
 }
 
-void encrypt_key(char* plainText, char* key) {
+void encrypt_key(char* plainText, char* key, int lenOfText) {
 	int i;
-	int lenOfText = strlen(plainText);
 	for (i = 0; i < lenOfText; i++) {
 		if (plainText[i] == 32) {
 			plainText[i] = 91;
@@ -42,11 +39,11 @@ void encrypt_key(char* plainText, char* key) {
 	}
 }
 
-int main(int argc, char *argv[])
-{
-	int listenSocketFD, establishedConnectionFD, portNumber, charsRead;
+int main(int argc, char *argv[]) {
+	int listenSocketFD, establishedConnectionFD, portNumber;
 	socklen_t sizeOfClientInfo;
 	struct sockaddr_in serverAddress, clientAddress;
+	ssize_t charsWritten, charsRead;
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
 
@@ -84,46 +81,105 @@ int main(int argc, char *argv[])
 	}
 	listen(listenSocketFD, 5); // Flip the socket on - it can now receive up to 5 connections
 
-	// Accept a connection, blocking if one is not available until one connects
-	sizeOfClientInfo = sizeof(clientAddress); // Get the size of the address for the client that will connect
-	establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); // Accept
-	if (establishedConnectionFD < 0) {
-		fprintf(stderr, "%s", "Error: Unable to accept connection\n");
-		exit(1);
+	while(1) {
+		pid_t pid = -5;
+
+		// Accept a connection, blocking if one is not available until one connects
+		sizeOfClientInfo = sizeof(clientAddress); // Get the size of the address for the client that will connect
+		establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo);
+		if (establishedConnectionFD < 0) {
+			fprintf(stderr, "%s", "Error: Unable to accept connection\n");
+			exit(1);
+		}
+		// Once connection is available, unblock
+		pid = fork();
+		if (pid < 0) {
+			fprintf(stderr, "Error: Unable to fork() child process\n");
+			exit(1);
+		}
+		// If this is the child process, begin communication with encryption client
+		if (pid == 0) {
+			// Send daemon type to client
+			char daemonType[2];
+			daemonType[0] = 'e';
+			daemonType[1] = '\0';
+			charsWritten = send(establishedConnectionFD, daemonType, 2, 0);
+			if (charsWritten < 0) {
+				fprintf(stderr, "Error: Unable to write to socket\n");
+				exit(1);
+			}
+
+			// Receive client type (encryption)
+			char clientType[2];
+			memset(clientType, '\0', sizeof(clientType));
+			charsRead = recv(establishedConnectionFD, clientType, 2, 0);
+			if (charsRead < 0) {
+				fprintf(stderr, "%s", "Error: unable to read from socket");
+				exit(1);
+			}
+
+			// If connected to the incorrect client, need to exit and close socket
+			if (strcmp(clientType, "e") != 0) {
+				close(establishedConnectionFD);
+				exit(1);
+			}
+
+			// Get the size of the plaintext buffer
+			char bufferSizeChar[8];
+			memset(bufferSizeChar, '\0', 8);
+			charsRead = recv(establishedConnectionFD, bufferSizeChar, 8, 0);
+			if (charsRead < 0) {
+				fprintf(stderr, "%s", "Error: unable to read from socket");
+				exit(1);
+			}
+
+			// Number of characters to encrypt
+			int plaintextBufferSize = atoi(bufferSizeChar);
+
+			char *textToEncrypt = malloc(sizeof(char) * (plaintextBufferSize + 1));
+			memset(textToEncrypt, '\0', plaintextBufferSize + 1);
+			charsRead = recv(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+			if (charsRead < 0) {
+				fprintf(stderr, "%s", "Error: unable to read from socket");
+				free(textToEncrypt);
+				exit(1);
+			}
+
+			char *keyText = malloc(sizeof(char) * (plaintextBufferSize + 1));
+			memset(keyText, '\0', plaintextBufferSize + 1);
+			charsRead = recv(establishedConnectionFD, keyText, plaintextBufferSize, 0);
+			if (charsRead < 0) {
+				fprintf(stderr, "%s", "Error: unable to read from socket");
+				free(textToEncrypt);
+				free(keyText);
+				exit(1);
+			}
+			fflush(stdout);
+
+			encrypt_key(textToEncrypt, keyText, plaintextBufferSize);
+
+			// Send encrypted text back to client
+			charsWritten = send(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+			if (charsWritten < 0) {
+				fprintf(stderr, "Error: Unable to write to socket\n");
+				free(textToEncrypt);
+				free(keyText);
+				exit(1);
+			}
+
+			// Terminate child process
+			close(establishedConnectionFD);
+			close(listenSocketFD);
+			free(textToEncrypt);
+			free(keyText);
+			exit(0);
+		}
+
+		// Once child process terminates, close the socket
+		else {
+			close(establishedConnectionFD);
+		}
 	}
-
-	// TODO: Send to client first
-	// Send server type (encryption)
-
-	// Get the message from the client
-	char textToEncrypt[256];
-	char keyText[256];
-	memset(textToEncrypt, '\0', 256);
-	memset(keyText, '\0', 256);
-
-	charsRead = recv(establishedConnectionFD, textToEncrypt, 255, 0);
-	if (charsRead < 0) {
-		fprintf(stderr, "%s", "Error: unable to read from socket");
-		exit(1);
-	}
-
-	charsRead = recv(establishedConnectionFD, keyText, 255, 0); // Read the client's message from the socket
-	if (charsRead < 0) {
-		fprintf(stderr, "%s", "Error: unable to read from socket");
-		exit(1);
-	}
-
-	encrypt_key(textToEncrypt, keyText);
-
-	// Send encrypted text back to client
-	ssize_t charsWritten;
-	charsWritten = send(establishedConnectionFD, textToEncrypt, strlen(textToEncrypt), 0);
-	if (charsWritten < 0) {
-		fprintf(stderr, "Error: Unable to write to socket\n");
-		exit(1);
-	}
-
-	close(establishedConnectionFD); // Close the existing socket which is connected to the client
 	close(listenSocketFD); // Close the listening socket
-	return 0; 
+	return 0;
 }
