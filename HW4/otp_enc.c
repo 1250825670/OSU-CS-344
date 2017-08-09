@@ -10,6 +10,8 @@
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 
+// TODO: Add a check for the server type that the socket opens on
+
 // Prints a usage statement
 void print_usage() {
     printf("Usage:\notp_enc plaintext key port\n");

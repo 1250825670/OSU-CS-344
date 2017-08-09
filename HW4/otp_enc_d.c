@@ -9,6 +9,8 @@
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 // FIXME: How to account for different size data in receiving buffer?
+// TODO: Add support for multiple child processes
+// TODO: Add a check for the client type that the socket opens on
 
 // Prints a usage statement
 void print_usage() {
