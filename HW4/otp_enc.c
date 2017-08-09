@@ -93,11 +93,10 @@ int main(int argc, char *argv[])
 
 	// TODO: Remove trailing newline from plaintext and keybuffer before outputting
 
-	int socketFD, portNumber, charsRead;
+	int socketFD, portNumber;
 	struct sockaddr_in serverAddress;
 	struct hostent* serverHostInfo;
-	char buffer[256];
-	ssize_t charsWritten;
+	ssize_t charsWritten, charsRead;
 
 	// Set up the server address struct
 	memset((char*)&serverAddress, '\0', sizeof(serverAddress)); // Clear out the address struct
@@ -115,6 +114,9 @@ int main(int argc, char *argv[])
 	// Connect to server
 	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
 		error("CLIENT: ERROR connecting otp_enc socket");
+	
+	// TODO: Receive from server first
+	// Receive the type of server - encrypt or decrypt
 
 	// Get input message from user
 	/*
@@ -135,21 +137,37 @@ int main(int argc, char *argv[])
 	plaintextBuffer[plaintextBufferEntered - 1] = '\0';
 	keyBuffer[keyBufferEntered - 1] = '\0';
 
-	charsWritten = send(socketFD, plaintextBuffer, strlen(plaintextBuffer), 0); // Write to the server
-	if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
+	// Send plaintext to server
+	charsWritten = send(socketFD, plaintextBuffer, strlen(plaintextBuffer), 0);
+	if (charsWritten < 0) {
+		fprintf(stderr, "Error: Unable to write to socket\n");
+		exit(1);
+	}
 
 	// TODO: Handle this contingency
-	if (charsWritten < strlen(buffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
+	if (charsWritten < strlen(plaintextBuffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
 
-	// Get return message from server
-	/*
-	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
-	charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); // Read data from the socket, leaving \0 at end
-	if (charsRead < 0) error("CLIENT: ERROR reading from socket");
-	printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
-	*/
+	// Send the key to server
+	charsWritten = send(socketFD, keyBuffer, strlen(keyBuffer), 0);
+	if (charsWritten < 0) {
+		fprintf(stderr, "Error: Unable to write to socket\n");
+		exit(1);
+	}
+
+	// TODO: Handle this contingency
+	if (charsWritten < strlen(keyBuffer)) printf("CLIENT: WARNING: Not all data written to socket!\n");
+
+	char encryptedText[256];
+	memset(encryptedText, '\0', sizeof(encryptedText));
+	charsRead = recv(socketFD, encryptedText, 255, 0); // Read the client's message from the socket
+	if (charsRead < 0) {
+		fprintf(stderr, "%s", "Error: unable to read from socket");
+		exit(1);
+	}
 
 	close(socketFD); // Close the socket
+
+	fprintf(stdout, "%s\n", encryptedText);
 
 	free(plaintextBuffer);
 	free(keyBuffer);

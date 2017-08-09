@@ -7,6 +7,9 @@
 #include <netinet/in.h>
 #include <ctype.h>
 
+void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
+// FIXME: How to account for different size data in receiving buffer?
+
 // Prints a usage statement
 void print_usage() {
     printf("Usage:\notp_enc_d port\n");
@@ -15,11 +18,32 @@ void print_usage() {
 	fflush(stdout);
 }
 
+void encrypt_key(char* plainText, char* key) {
+	int i;
+	int lenOfText = strlen(plainText);
+	for (i = 0; i < lenOfText; i++) {
+		if (plainText[i] == 32) {
+			plainText[i] = 91;
+		}
+		if (key[i] == 32) {
+			plainText[i] = 91;
+		}
+		int curKey = (plainText[i] - 65) + (key[i] - 65);
+		curKey = curKey % 27;
+		if (curKey == 26) {
+			curKey = 32;
+		}
+		else {
+			curKey += 65;
+		}
+		plainText[i] = curKey;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int listenSocketFD, establishedConnectionFD, portNumber, charsRead;
 	socklen_t sizeOfClientInfo;
-	char buffer[256];
 	struct sockaddr_in serverAddress, clientAddress;
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
@@ -66,21 +90,37 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	// Get the message from the client and display it
-	memset(buffer, '\0', 256);
-	charsRead = recv(establishedConnectionFD, buffer, 255, 0); // Read the client's message from the socket
+	// TODO: Send to client first
+	// Send server type (encryption)
+
+	// Get the message from the client
+	char textToEncrypt[256];
+	char keyText[256];
+	memset(textToEncrypt, '\0', 256);
+	memset(keyText, '\0', 256);
+
+	charsRead = recv(establishedConnectionFD, textToEncrypt, 255, 0);
 	if (charsRead < 0) {
 		fprintf(stderr, "%s", "Error: unable to read from socket");
 		exit(1);
 	}
-	printf("SERVER: I received this from the client: \"%s\"\n", buffer);
 
-	// Send a Success message back to the client
-	charsRead = send(establishedConnectionFD, "I am the server, and I got your message", 39, 0); // Send success back
+	charsRead = recv(establishedConnectionFD, keyText, 255, 0); // Read the client's message from the socket
 	if (charsRead < 0) {
-		fprintf(stderr, "%s", "Error: unable to write to socket");
+		fprintf(stderr, "%s", "Error: unable to read from socket");
 		exit(1);
 	}
+
+	encrypt_key(textToEncrypt, keyText);
+
+	// Send encrypted text back to client
+	ssize_t charsWritten;
+	charsWritten = send(establishedConnectionFD, textToEncrypt, strlen(textToEncrypt), 0);
+	if (charsWritten < 0) {
+		fprintf(stderr, "Error: Unable to write to socket\n");
+		exit(1);
+	}
+
 	close(establishedConnectionFD); // Close the existing socket which is connected to the client
 	close(listenSocketFD); // Close the listening socket
 	return 0; 
