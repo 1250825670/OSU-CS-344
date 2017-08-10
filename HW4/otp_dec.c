@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	// Open key file and store key text
 	char* keyBuffer = NULL;
 	size_t keySize = 0;
 	int keyBufferEntered = 0;
@@ -152,7 +153,7 @@ int main(int argc, char *argv[])
 	ciphertextBuffer[ciphertextBufferEntered - 1] = '\0';
 	keyBuffer[keyBufferEntered - 1] = '\0';
 
-	// First, sends a number containing the length of the plaintext buffer
+	// First, sends a number containing the length of the ciphertext buffer
 	char bufferSizeChar[8];
 	memset(bufferSizeChar, '\0', sizeof(bufferSizeChar));
 	snprintf(bufferSizeChar, 8, "%d", ciphertextBufferEntered - 1);
@@ -166,8 +167,11 @@ int main(int argc, char *argv[])
 
 	// Send ciphertext to server
 	int curBuffer = 0;
+	int left = ciphertextBufferEntered - 1;
+
+	// Keep track of if data transfer is incomplete
 	while (curBuffer < ciphertextBufferEntered - 1) {
-		charsWritten = send(socketFD, ciphertextBuffer, ciphertextBufferEntered - 1, 0);
+		charsWritten = send(socketFD, ciphertextBuffer + curBuffer, left, 0);
 		if (charsWritten < 0) {
 			fprintf(stderr, "Error: Unable to write to socket\n");
 			free(ciphertextBuffer);
@@ -175,14 +179,16 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsWritten;
+		left -= charsWritten;
 	}
 
 	// Send the key to server
 	// If the key is longer than the ciphertext, only enough characters to encrypt the plaintext
 	// will be sent
 	curBuffer = 0;
+	left = ciphertextBufferEntered - 1;
 	while (curBuffer < ciphertextBufferEntered - 1) {
-		charsWritten = send(socketFD, keyBuffer, ciphertextBufferEntered - 1, 0);
+		charsWritten = send(socketFD, keyBuffer + curBuffer, left, 0);
 		if (charsWritten < 0) {
 			fprintf(stderr, "Error: Unable to write to socket\n");
 			free(ciphertextBuffer);
@@ -190,13 +196,16 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsWritten;
+		left -= charsWritten;
 	}
 
+	// Receive decrypted text from daemon
 	curBuffer = 0;
+	left = ciphertextBufferEntered - 1;
 	char decryptedText[ciphertextBufferEntered];
 	memset(decryptedText, '\0', sizeof(decryptedText));
 	while (curBuffer < ciphertextBufferEntered - 1) {
-		charsRead = recv(socketFD, decryptedText, ciphertextBufferEntered - 1, 0);
+		charsRead = recv(socketFD, decryptedText + curBuffer, left, 0);
 		if (charsRead < 0) {
 			fprintf(stderr, "%s", "Error: unable to read from socket");
 			free(ciphertextBuffer);
@@ -204,11 +213,12 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsRead;
+		left -= charsRead;
 	}
 
 	close(socketFD); // Close the socket
 
-	// Output the encrypted text onto stdout
+	// Output the decrypted text onto stdout
 	fprintf(stdout, "%s\n", decryptedText);
 
 	free(ciphertextBuffer);

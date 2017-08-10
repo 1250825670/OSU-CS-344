@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	// Open key file and store text
 	char* keyBuffer = NULL;
 	size_t keySize = 0;
 	int keyBufferEntered = 0;
@@ -166,8 +167,11 @@ int main(int argc, char *argv[])
 
 	// Send plaintext to server
 	int curBuffer = 0;
+	int left = plaintextBufferEntered - 1;
+
+	// Keep track of if data transfer is incomplete
 	while (curBuffer < plaintextBufferEntered - 1) {
-		charsWritten = send(socketFD, plaintextBuffer, plaintextBufferEntered - 1, 0);
+		charsWritten = send(socketFD, plaintextBuffer + curBuffer, left, 0);
 		if (charsWritten < 0) {
 			fprintf(stderr, "Error: Unable to write to socket\n");
 			free(plaintextBuffer);
@@ -175,14 +179,16 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsWritten;
+		left -= charsWritten;
 	}
 
 	// Send the key to server
 	// If the key is longer than the plaintext, only enough characters to encrypt the plaintext
 	// will be sent
 	curBuffer = 0;
+	left = plaintextBufferEntered - 1;
 	while (curBuffer < plaintextBufferEntered - 1) {
-		charsWritten = send(socketFD, keyBuffer, plaintextBufferEntered - 1, 0);
+		charsWritten = send(socketFD, keyBuffer + curBuffer, left, 0);
 		if (charsWritten < 0) {
 			fprintf(stderr, "Error: Unable to write to socket\n");
 			free(plaintextBuffer);
@@ -190,13 +196,16 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsWritten;
+		left -= charsWritten;
 	}
 
+	// Receive encrypted text back from daemon
 	curBuffer = 0;
+	left = plaintextBufferEntered - 1;
 	char encryptedText[plaintextBufferEntered];
 	memset(encryptedText, '\0', sizeof(encryptedText));
 	while (curBuffer < plaintextBufferEntered - 1) {
-		charsRead = recv(socketFD, encryptedText, plaintextBufferEntered - 1, 0); // Read the client's message from the socket
+		charsRead = recv(socketFD, encryptedText + curBuffer, left, 0); // Read the client's message from the socket
 		if (charsRead < 0) {
 			fprintf(stderr, "%s", "Error: unable to read from socket");
 			free(plaintextBuffer);
@@ -204,6 +213,7 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		curBuffer += charsRead;
+		left -= charsRead;
 	}
 
 	close(socketFD); // Close the socket

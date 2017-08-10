@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <ctype.h>
 
+// Struct to store children
 struct children {
     int *children_pids;
     int n;
@@ -106,6 +107,8 @@ void popLastChild(struct children* children) {
     children->n--;
 }
 
+// Calls wait on all children currently running
+// Needed to cleanup zombie process that may still be running
 void waitChildren(struct children* children) {
     int i;
 	int lastChild = children->n;
@@ -114,18 +117,23 @@ void waitChildren(struct children* children) {
 		return;
 	}
     for (i = lastChild - 1; i >= 0; i--) {
+		// Call wait for all children
 		pid_t childEndedPID = waitpid(children->children_pids[i], &childExitMethod, WNOHANG);
 		if (childEndedPID == 0) {
             continue;
         }
 		else {
+			// If the current child process has terminated, remove it from the ADT
 			removeChild(children, children->children_pids[i]);
 		}
     }
 }
 
+// Function to decrypt text
 void decrypt_key(char* cipherText, char* key, int lenOfText) {
 	int i;
+	// Values are between 65 and 90 (ASCII A through Z)
+	// If value is a space (ASCII 32), set it to 91 for easier decryption
 	for (i = 0; i < lenOfText; i++) {
 		if (cipherText[i] == ' ') {
 			cipherText[i] = 91;
@@ -133,15 +141,21 @@ void decrypt_key(char* cipherText, char* key, int lenOfText) {
 		if (key[i] == ' ') {
 			key[i] = 91;
 		}
+
 		int curKey = (cipherText[i] - 65) - (key[i] - 65);
+
+		// If negative, wrap around to positive value
 		if (curKey < 0) {
 			curKey += 27;
 		}
 		curKey = curKey % 27;
+
+		// Defining 26 as space
 		if (curKey == 26) {
 			curKey = ' ';
 		}
 		else {
+			// 0 through 25 are A through Z, so add 65
 			curKey += 65;
 		}
 		cipherText[i] = curKey;
@@ -193,6 +207,7 @@ int main(int argc, char *argv[]) {
 	listen(listenSocketFD, 5); // Flip the socket on - it can now receive up to 5 connections
 
 	while(1) {
+		// Call wait on all children that may be running
 		waitChildren(children);
 		pid_t pid = -5;
 
@@ -209,6 +224,7 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "Error: Unable to fork() child process\n");
 			exit(1);
 		}
+
 		// If this is the child process, begin communication with decryption client
 		if (pid == 0) {
 			// Send daemon type to client
@@ -251,23 +267,30 @@ int main(int argc, char *argv[]) {
 			char *textToDecrypt = malloc(sizeof(char) * (ciphertextBufferSize + 1));
 			memset(textToDecrypt, '\0', ciphertextBufferSize + 1);
 
+			// Read in the text that needs to be decrypted
 			int curBuffer = 0;
+			int left = ciphertextBufferSize;
+
+			// Keep track of if data transfer is incomplete
 			while (curBuffer < ciphertextBufferSize) {
-				charsRead = recv(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
+				charsRead = recv(establishedConnectionFD, textToDecrypt + curBuffer, left, 0);
 				if (charsRead < 0) {
 					fprintf(stderr, "%s", "Error: unable to read from socket");
 					free(textToDecrypt);
 					exit(1);
 				}
 				curBuffer += charsRead;
+				left -= charsRead;
 			}
 
 			char *keyText = malloc(sizeof(char) * (ciphertextBufferSize + 1));
 			memset(keyText, '\0', ciphertextBufferSize + 1);
 
+			// Read in the key
 			curBuffer = 0;
+			left = ciphertextBufferSize;
 			while (curBuffer < ciphertextBufferSize) {
-				charsRead = recv(establishedConnectionFD, keyText, ciphertextBufferSize, 0);
+				charsRead = recv(establishedConnectionFD, keyText + curBuffer, left, 0);
 				if (charsRead < 0) {
 					fprintf(stderr, "%s", "Error: unable to read from socket");
 					free(textToDecrypt);
@@ -275,14 +298,17 @@ int main(int argc, char *argv[]) {
 					exit(1);
 				}
 				curBuffer += charsRead;
+				left -= charsRead;
 			}
 
+			// Decrypt the text in-place
 			decrypt_key(textToDecrypt, keyText, ciphertextBufferSize);
 
 			// Send decrypted text back to client
 			curBuffer = 0;
+			left = ciphertextBufferSize;
 			while (curBuffer < ciphertextBufferSize) {
-				charsWritten = send(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
+				charsWritten = send(establishedConnectionFD, textToDecrypt + curBuffer, left, 0);
 				if (charsWritten < 0) {
 					fprintf(stderr, "Error: Unable to write to socket\n");
 					free(textToDecrypt);
@@ -290,6 +316,7 @@ int main(int argc, char *argv[]) {
 					exit(1);
 				}
 				curBuffer += charsWritten;
+				left -= charsWritten;
 			}
 
 			// Terminate child process

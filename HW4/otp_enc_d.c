@@ -7,8 +7,6 @@
 #include <netinet/in.h>
 #include <ctype.h>
 
-// FIXME: Fails when running file 4 and 5 concurrently, but ok if file 5 is never run
-
 struct children {
     int *children_pids;
     int n;
@@ -108,6 +106,8 @@ void popLastChild(struct children* children) {
     children->n--;
 }
 
+// Calls wait on all children currently running
+// Needed to cleanup zombie process that may still be running
 void waitChildren(struct children* children) {
     int i;
 	int lastChild = children->n;
@@ -116,18 +116,23 @@ void waitChildren(struct children* children) {
 		return;
 	}
     for (i = lastChild - 1; i >= 0; i--) {
+		// Call wait for all children
 		pid_t childEndedPID = waitpid(children->children_pids[i], &childExitMethod, WNOHANG);
 		if (childEndedPID == 0) {
             continue;
         }
 		else {
+			// If the current child process has terminated, remove it from the ADT
 			removeChild(children, children->children_pids[i]);
 		}
     }
 }
 
+// Function to encrypt text
 void encrypt_key(char* plainText, char* key, int lenOfText) {
 	int i;
+	// Values are between 65 and 90 (ASCII A through Z)
+	// If value is a space (ASCII 32), set it to 91 for easier decryption
 	for (i = 0; i < lenOfText; i++) {
 		if (plainText[i] == ' ') {
 			plainText[i] = 91;
@@ -135,12 +140,17 @@ void encrypt_key(char* plainText, char* key, int lenOfText) {
 		if (key[i] == ' ') {
 			key[i] = 91;
 		}
+
 		int curKey = (plainText[i] - 65) + (key[i] - 65);
+
 		curKey = curKey % 27;
+
+		// Defining 26 as space
 		if (curKey == 26) {
 			curKey = ' ';
 		}
 		else {
+			// 0 through 25 are A through Z, so add 65
 			curKey += 65;
 		}
 		plainText[i] = curKey;
@@ -192,6 +202,7 @@ int main(int argc, char *argv[]) {
 	listen(listenSocketFD, 5); // Flip the socket on - it can now receive up to 5 connections
 
 	while(1) {
+		// Call wait on all children that may be running
 		waitChildren(children);
 		pid_t pid = -5;
 
@@ -250,23 +261,30 @@ int main(int argc, char *argv[]) {
 			char *textToEncrypt = malloc(sizeof(char) * (plaintextBufferSize + 1));
 			memset(textToEncrypt, '\0', plaintextBufferSize + 1);
 
+			// Receive text that needs to be encrypted
 			int curBuffer = 0;
+			int left = plaintextBufferSize;
+
+			// Keep track of if data transfer is incomplete
 			while (curBuffer < plaintextBufferSize) {
-				charsRead = recv(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+				charsRead = recv(establishedConnectionFD, textToEncrypt + curBuffer, left, 0);
 				if (charsRead < 0) {
 					fprintf(stderr, "%s", "Error: unable to read from socket");
 					free(textToEncrypt);
 					exit(1);
 				}
 				curBuffer += charsRead;
+				left -= charsRead;
 			}
 
 			char *keyText = malloc(sizeof(char) * (plaintextBufferSize + 1));
 			memset(keyText, '\0', plaintextBufferSize + 1);
 
+			// Receive the key
 			curBuffer = 0;
+			left = plaintextBufferSize;
 			while (curBuffer < plaintextBufferSize) {
-				charsRead = recv(establishedConnectionFD, keyText, plaintextBufferSize, 0);
+				charsRead = recv(establishedConnectionFD, keyText + curBuffer, left, 0);
 				if (charsRead < 0) {
 					fprintf(stderr, "%s", "Error: unable to read from socket");
 					free(textToEncrypt);
@@ -274,14 +292,17 @@ int main(int argc, char *argv[]) {
 					exit(1);
 				}
 				curBuffer += charsRead;
+				left -= charsRead;
 			}
 
+			// Encrypt the text in-place
 			encrypt_key(textToEncrypt, keyText, plaintextBufferSize);
 
 			// Send encrypted text back to client
 			curBuffer = 0;
+			left = plaintextBufferSize;
 			while (curBuffer < plaintextBufferSize) {
-				charsWritten = send(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+				charsWritten = send(establishedConnectionFD, textToEncrypt + curBuffer, left, 0);
 				if (charsWritten < 0) {
 					fprintf(stderr, "Error: Unable to write to socket\n");
 					free(textToEncrypt);
@@ -289,6 +310,7 @@ int main(int argc, char *argv[]) {
 					exit(1);
 				}
 				curBuffer += charsWritten;
+				left -= charsWritten;
 			}
 
 			// Terminate child process
