@@ -7,8 +7,22 @@
 #include <netinet/in.h>
 #include <ctype.h>
 
-void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 // TODO: Add support for multiple child processes
+struct children {
+    int *children_pids;
+    int n;
+};
+
+struct children* initChildren();
+void clearChildren(struct children*);
+void addChild(struct children*, int);
+void removeChild(struct children*, int);
+int childrenLeft(struct children*);
+int getLastChild(struct children*);
+void popLastChild(struct children*);
+void waitChildren(struct children*);
+
+void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 
 // Prints a usage statement
 void print_usage() {
@@ -16,6 +30,99 @@ void print_usage() {
 	fflush(stdout);
     printf("port is an int on which to listen on\n");
 	fflush(stdout);
+}
+
+// Initializes a children struct
+// Allocates space for 6 integers in children_pids array and sets
+// n to 0
+struct children* initChildren() {
+    // Maximum of 5 children
+    // Using last index as a garbage can
+    int* arr = malloc(sizeof(int) * 6);
+    struct children* childrenStruct = malloc(sizeof(struct children));
+    childrenStruct->children_pids = arr;
+
+    // n attribute represents the number of children in the children_pids array
+    childrenStruct->n = 0;
+    return childrenStruct;
+}
+
+// Frees memory allocated for struct
+void clearChildren(struct children* children) {
+    free(children->children_pids);
+    free(children);
+    return;
+}
+
+// Adds the given pid to the children_pids array
+void addChild(struct children* children, int child_pid) {
+    // Only adds new value if there is space left in the array
+    if (children->n < 5) {
+        children->children_pids[children->n] = child_pid;
+        children->n++;
+    }
+    return;
+}
+
+// Removes the given pid from the children_pids array
+void removeChild(struct children* children, int child_pid) {
+    if (children->n == 0) {
+        return;
+    }
+
+    // Find the index of the array in which the pid canbe found
+    int i;
+    int found = 0;
+    for (i = 0; i < children->n; i++) {
+        if (children->children_pids[i] == child_pid) {
+            found = 1;
+            break;
+        }
+    }
+
+    // Remove the given pid from the children_pids array, and shift following
+    // elements up
+    if (found == 1) {
+        children->children_pids[5] = children->children_pids[i];
+        int j;
+        for (j = i; j < children->n; j++) {
+            children->children_pids[j] = children->children_pids[j + 1];
+        }
+        children->n--;
+    }
+}
+
+// Returns the number of children left
+int childrenLeft(struct children* children) {
+    return children->n;
+}
+
+// Gets the value of the last child's pid
+int getLastChild(struct children* children) {
+    return children->children_pids[children->n-1];
+}
+
+// Removes the last child's pid
+void popLastChild(struct children* children) {
+    children->n--;
+}
+
+void waitChildren(struct children* children) {
+    int i;
+	int lastChild = children->n;
+	int childExitMethod;
+	if (children->n == 0) {
+		return;
+	}
+    for (i = lastChild - 1; i >= 0; i--) {
+		pid_t childEndedPID = waitpid(children->children_pids[i], &childExitMethod, WNOHANG);
+		if (childEndedPID == 0) {
+            continue;
+        }
+		else {
+			removeChild(children, children->children_pids[i]);
+		}
+    }
 }
 
 void encrypt_key(char* plainText, char* key, int lenOfText) {
@@ -44,6 +151,8 @@ int main(int argc, char *argv[]) {
 	socklen_t sizeOfClientInfo;
 	struct sockaddr_in serverAddress, clientAddress;
 	ssize_t charsWritten, charsRead;
+
+	struct children* children = initChildren();
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
 
@@ -82,6 +191,7 @@ int main(int argc, char *argv[]) {
 	listen(listenSocketFD, 5); // Flip the socket on - it can now receive up to 5 connections
 
 	while(1) {
+		waitChildren(children);
 		pid_t pid = -5;
 
 		// Accept a connection, blocking if one is not available until one connects
@@ -178,8 +288,19 @@ int main(int argc, char *argv[]) {
 		// Once child process terminates, close the socket
 		else {
 			close(establishedConnectionFD);
+			int childExitMethod;
+
+			// Call wait to reap process if terminated
+			pid_t childEndedPID = waitpid(pid, &childExitMethod, WNOHANG);
+
+			// If child has not terminated, add child to struct
+			// Check to see if it has completed later
+			if (childEndedPID == 0) {
+            	addChild(children, (int)pid);
+        	}
 		}
 	}
+	clearChildren(children);
 	close(listenSocketFD); // Close the listening socket
 	return 0;
 }
