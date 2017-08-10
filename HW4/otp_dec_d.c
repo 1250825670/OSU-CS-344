@@ -250,33 +250,46 @@ int main(int argc, char *argv[]) {
 
 			char *textToDecrypt = malloc(sizeof(char) * (ciphertextBufferSize + 1));
 			memset(textToDecrypt, '\0', ciphertextBufferSize + 1);
-			charsRead = recv(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
-			if (charsRead < 0) {
-				fprintf(stderr, "%s", "Error: unable to read from socket");
-				free(textToDecrypt);
-				exit(1);
+
+			int curBuffer = 0;
+			while (curBuffer < ciphertextBufferSize) {
+				charsRead = recv(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
+				if (charsRead < 0) {
+					fprintf(stderr, "%s", "Error: unable to read from socket");
+					free(textToDecrypt);
+					exit(1);
+				}
+				curBuffer += charsRead;
 			}
 
 			char *keyText = malloc(sizeof(char) * (ciphertextBufferSize + 1));
 			memset(keyText, '\0', ciphertextBufferSize + 1);
-			charsRead = recv(establishedConnectionFD, keyText, ciphertextBufferSize, 0);
-			if (charsRead < 0) {
-				fprintf(stderr, "%s", "Error: unable to read from socket");
-				free(textToDecrypt);
-				free(keyText);
-				exit(1);
+
+			curBuffer = 0;
+			while (curBuffer < ciphertextBufferSize) {
+				charsRead = recv(establishedConnectionFD, keyText, ciphertextBufferSize, 0);
+				if (charsRead < 0) {
+					fprintf(stderr, "%s", "Error: unable to read from socket");
+					free(textToDecrypt);
+					free(keyText);
+					exit(1);
+				}
+				curBuffer += charsRead;
 			}
-			fflush(stdout);
 
 			decrypt_key(textToDecrypt, keyText, ciphertextBufferSize);
 
 			// Send decrypted text back to client
-			charsWritten = send(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
-			if (charsWritten < 0) {
-				fprintf(stderr, "Error: Unable to write to socket\n");
-				free(textToDecrypt);
-				free(keyText);
-				exit(1);
+			curBuffer = 0;
+			while (curBuffer < ciphertextBufferSize) {
+				charsWritten = send(establishedConnectionFD, textToDecrypt, ciphertextBufferSize, 0);
+				if (charsWritten < 0) {
+					fprintf(stderr, "Error: Unable to write to socket\n");
+					free(textToDecrypt);
+					free(keyText);
+					exit(1);
+				}
+				curBuffer += charsWritten;
 			}
 
 			// Terminate child process

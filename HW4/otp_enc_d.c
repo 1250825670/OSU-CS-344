@@ -7,7 +7,8 @@
 #include <netinet/in.h>
 #include <ctype.h>
 
-// TODO: Add support for multiple child processes
+// FIXME: Fails when running file 4 and 5 concurrently, but ok if file 5 is never run
+
 struct children {
     int *children_pids;
     int n;
@@ -248,33 +249,46 @@ int main(int argc, char *argv[]) {
 
 			char *textToEncrypt = malloc(sizeof(char) * (plaintextBufferSize + 1));
 			memset(textToEncrypt, '\0', plaintextBufferSize + 1);
-			charsRead = recv(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
-			if (charsRead < 0) {
-				fprintf(stderr, "%s", "Error: unable to read from socket");
-				free(textToEncrypt);
-				exit(1);
+
+			int curBuffer = 0;
+			while (curBuffer < plaintextBufferSize) {
+				charsRead = recv(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+				if (charsRead < 0) {
+					fprintf(stderr, "%s", "Error: unable to read from socket");
+					free(textToEncrypt);
+					exit(1);
+				}
+				curBuffer += charsRead;
 			}
 
 			char *keyText = malloc(sizeof(char) * (plaintextBufferSize + 1));
 			memset(keyText, '\0', plaintextBufferSize + 1);
-			charsRead = recv(establishedConnectionFD, keyText, plaintextBufferSize, 0);
-			if (charsRead < 0) {
-				fprintf(stderr, "%s", "Error: unable to read from socket");
-				free(textToEncrypt);
-				free(keyText);
-				exit(1);
+
+			curBuffer = 0;
+			while (curBuffer < plaintextBufferSize) {
+				charsRead = recv(establishedConnectionFD, keyText, plaintextBufferSize, 0);
+				if (charsRead < 0) {
+					fprintf(stderr, "%s", "Error: unable to read from socket");
+					free(textToEncrypt);
+					free(keyText);
+					exit(1);
+				}
+				curBuffer += charsRead;
 			}
-			fflush(stdout);
 
 			encrypt_key(textToEncrypt, keyText, plaintextBufferSize);
 
 			// Send encrypted text back to client
-			charsWritten = send(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
-			if (charsWritten < 0) {
-				fprintf(stderr, "Error: Unable to write to socket\n");
-				free(textToEncrypt);
-				free(keyText);
-				exit(1);
+			curBuffer = 0;
+			while (curBuffer < plaintextBufferSize) {
+				charsWritten = send(establishedConnectionFD, textToEncrypt, plaintextBufferSize, 0);
+				if (charsWritten < 0) {
+					fprintf(stderr, "Error: Unable to write to socket\n");
+					free(textToEncrypt);
+					free(keyText);
+					exit(1);
+				}
+				curBuffer += charsWritten;
 			}
 
 			// Terminate child process

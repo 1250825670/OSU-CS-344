@@ -43,35 +43,42 @@ int main(int argc, char *argv[])
         }
     }
 
+	char* ciphertextBuffer = NULL;
+	size_t ciphertextBufferSize = 0;
+	int ciphertextBufferEntered = 0;
+
 	// Opens files for reading
 	FILE* ciphertextFile = fopen(argv[1], "r");
-	FILE* keyFile = fopen(argv[2], "r");
-
 	if (!ciphertextFile) {
 		fprintf(stderr, "%s%s\n", "Error: could not open file ", argv[1]);
 		fflush(stdout);
 		exit(1);
 	}
-	if (!keyFile) {
-		fprintf(stderr, "%s%s\n", "Error: could not open file ", argv[2]);
-		fflush(stdout);
-		exit(1);
-	}
 
-	char* ciphertextBuffer = NULL;
-	size_t ciphertextBufferSize = 0;
-	int ciphertextBufferEntered = 0;
+	// Size of the string array
+	// Last element of the string array is \n
+	ciphertextBufferEntered = getline(&ciphertextBuffer, &ciphertextBufferSize, ciphertextFile);
+	fclose(ciphertextFile);
+
+	// Check for invalid characters in plaintext
+	for (i = 0; i < ciphertextBufferEntered - 1; i++) {
+		if ( !(ciphertextBuffer[i] >= 65 && ciphertextBuffer[i] <= 90) && ciphertextBuffer[i] != 32 ) {
+			fprintf(stderr, "%s", "\nError: input contains bad characters\n");
+			free(ciphertextBuffer);
+			exit(1);
+		}
+	}
 
 	char* keyBuffer = NULL;
 	size_t keySize = 0;
 	int keyBufferEntered = 0;
 
-	// Size of the string array
-	// Last element of the string array is \n
-	ciphertextBufferEntered = getline(&ciphertextBuffer, &ciphertextBufferSize, ciphertextFile);
+	FILE* keyFile = fopen(argv[2], "r");
+	if (!keyFile) {
+		fprintf(stderr, "%s%s\n", "Error: could not open file ", argv[2]);
+		exit(1);
+	}
 	keyBufferEntered = getline(&keyBuffer, &keySize, keyFile);
-
-	fclose(ciphertextFile);
 	fclose(keyFile);
 
 	// Check that key is long enough
@@ -82,17 +89,6 @@ int main(int argc, char *argv[])
 		free(ciphertextBuffer);
 		free(keyBuffer);
 		exit(1);
-	}
-
-	// Check for invalid characters in plaintext
-	for (i = 0; i < ciphertextBufferEntered - 1; i++) {
-		if ( !(ciphertextBuffer[i] >= 65 && ciphertextBuffer[i] <= 90) && ciphertextBuffer[i] != 32 ) {
-			fprintf(stderr, "%s", "\nError: input contains bad characters\n");
-			fflush(stdout);
-			free(ciphertextBuffer);
-			free(keyBuffer);
-			exit(1);
-		}
 	}
 
 	int socketFD, portNumber;
@@ -169,36 +165,45 @@ int main(int argc, char *argv[])
 	}
 
 	// Send ciphertext to server
-	charsWritten = send(socketFD, ciphertextBuffer, ciphertextBufferEntered - 1, 0);
-	if (charsWritten < 0) {
-		fprintf(stderr, "Error: Unable to write to socket\n");
-		free(ciphertextBuffer);
-		free(keyBuffer);
-		exit(1);
+	int curBuffer = 0;
+	while (curBuffer < ciphertextBufferEntered - 1) {
+		charsWritten = send(socketFD, ciphertextBuffer, ciphertextBufferEntered - 1, 0);
+		if (charsWritten < 0) {
+			fprintf(stderr, "Error: Unable to write to socket\n");
+			free(ciphertextBuffer);
+			free(keyBuffer);
+			exit(1);
+		}
+		curBuffer += charsWritten;
 	}
-	if (charsWritten < ciphertextBufferEntered - 1) printf("CLIENT: WARNING: Not all data written to socket!\n");
 
 	// Send the key to server
 	// If the key is longer than the ciphertext, only enough characters to encrypt the plaintext
 	// will be sent
-	charsWritten = send(socketFD, keyBuffer, ciphertextBufferEntered - 1, 0);
-	if (charsWritten < 0) {
-		fprintf(stderr, "Error: Unable to write to socket\n");
-		free(ciphertextBuffer);
-		free(keyBuffer);
-		exit(1);
+	curBuffer = 0;
+	while (curBuffer < ciphertextBufferEntered - 1) {
+		charsWritten = send(socketFD, keyBuffer, ciphertextBufferEntered - 1, 0);
+		if (charsWritten < 0) {
+			fprintf(stderr, "Error: Unable to write to socket\n");
+			free(ciphertextBuffer);
+			free(keyBuffer);
+			exit(1);
+		}
+		curBuffer += charsWritten;
 	}
 
-	if (charsWritten < ciphertextBufferEntered - 1) printf("CLIENT: WARNING: Not all data written to socket!\n");
-
+	curBuffer = 0;
 	char decryptedText[ciphertextBufferEntered];
 	memset(decryptedText, '\0', sizeof(decryptedText));
-	charsRead = recv(socketFD, decryptedText, ciphertextBufferEntered - 1, 0); // Read the client's message from the socket
-	if (charsRead < 0) {
-		fprintf(stderr, "%s", "Error: unable to read from socket");
-		free(ciphertextBuffer);
-		free(keyBuffer);
-		exit(1);
+	while (curBuffer < ciphertextBufferEntered - 1) {
+		charsRead = recv(socketFD, decryptedText, ciphertextBufferEntered - 1, 0);
+		if (charsRead < 0) {
+			fprintf(stderr, "%s", "Error: unable to read from socket");
+			free(ciphertextBuffer);
+			free(keyBuffer);
+			exit(1);
+		}
+		curBuffer += charsRead;
 	}
 
 	close(socketFD); // Close the socket
