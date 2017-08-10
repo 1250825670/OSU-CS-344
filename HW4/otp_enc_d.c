@@ -128,16 +128,16 @@ void waitChildren(struct children* children) {
 void encrypt_key(char* plainText, char* key, int lenOfText) {
 	int i;
 	for (i = 0; i < lenOfText; i++) {
-		if (plainText[i] == 32) {
+		if (plainText[i] == ' ') {
 			plainText[i] = 91;
 		}
-		if (key[i] == 32) {
-			plainText[i] = 91;
+		if (key[i] == ' ') {
+			key[i] = 91;
 		}
 		int curKey = (plainText[i] - 65) + (key[i] - 65);
 		curKey = curKey % 27;
 		if (curKey == 26) {
-			curKey = 32;
+			curKey = ' ';
 		}
 		else {
 			curKey += 65;
